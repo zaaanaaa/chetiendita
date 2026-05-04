@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Che Tiendita | Catalogo</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <header class="hero">
+    <div class="top-row">
+      <div class="brand-pill">Catalogo digital</div>
+      <div class="session-box">
+        <span id="sessionLabel">No logueado</span>
+        <a id="adminLink" class="btn btn-secondary hidden" href="./admin.html">Panel admin</a>
+        <button id="logoutBtn" class="btn btn-secondary hidden" type="button">Cerrar sesion</button>
+      </div>
+    </div>
+    <h1>Che Tiendita</h1>
+    <p>Regalos, deco y cositas lindas para todos los dias.</p>
+  </header>
+
+  <main class="catalog-wrap">
+    <section id="loginSection" class="panel">
+      <h2>Ingresar</h2>
+      <p class="panel-note">Usuarios de prueba: admin/admin123 y user/user123</p>
+      <form id="loginForm" class="form-grid">
+        <input id="username" type="text" placeholder="Usuario" required />
+        <input id="password" type="password" placeholder="Contrasena" required />
+        <button class="btn btn-primary" type="submit">Entrar</button>
+      </form>
+      <form id="registerForm" class="form-grid">
+        <input id="registerUsername" type="text" placeholder="Nuevo usuario" required />
+        <input id="registerPassword" type="password" placeholder="Nueva contrasena" required />
+        <button class="btn btn-secondary" type="submit">Registrarme</button>
+      </form>
+      <p id="loginMessage" class="message"></p>
+    </section>
+
+    <section id="catalogSection" class="hidden">
+      <section class="toolbar">
+        <input type="search" id="search" placeholder="Buscar producto..." />
+        <select id="tagFilter">
+          <option value="">Todos los atributos</option>
+        </select>
+      </section>
+      <p id="resultsInfo" class="results-info"></p>
+      <div id="catalog" class="catalog-grid"></div>
+    </section>
+  </main>
+
+  <script src="./user.js"></script>
+</body>
+</html>
