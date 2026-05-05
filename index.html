@@ -15,6 +15,7 @@
       <div class="brand-pill">Catalogo digital</div>
       <div class="session-box">
         <span id="sessionLabel">No logueado</span>
+        <button id="showLoginBtn" class="btn btn-secondary" type="button">Acceso admin</button>
         <a id="adminLink" class="btn btn-secondary hidden" href="./admin.html">Panel admin</a>
         <button id="logoutBtn" class="btn btn-secondary hidden" type="button">Cerrar sesion</button>
       </div>
@@ -24,7 +25,7 @@
   </header>
 
   <main class="catalog-wrap">
-    <section id="loginSection" class="panel">
+    <section id="loginSection" class="panel hidden">
       <h2>Ingresar</h2>
       <p class="panel-note">Usuarios de prueba: admin/admin123 y user/user123</p>
       <form id="loginForm" class="form-grid">
@@ -38,9 +39,10 @@
         <button class="btn btn-secondary" type="submit">Registrarme</button>
       </form>
       <p id="loginMessage" class="message"></p>
+      <button id="hideLoginBtn" class="btn btn-secondary" type="button">Cerrar</button>
     </section>
 
-    <section id="catalogSection" class="hidden">
+    <section id="catalogSection">
       <section class="toolbar">
         <input type="search" id="search" placeholder="Buscar producto..." />
         <select id="tagFilter">

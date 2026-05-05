@@ -270,8 +270,6 @@ class Handler(SimpleHTTPRequestHandler):
             return self._json(200, {"user": {"username": user["username"], "role": user["role"]}})
 
         if parsed.path == "/api/tags":
-            if not self._require_auth():
-                return
             conn = db()
             cur = conn.cursor()
             cur.execute("SELECT id,name FROM tags ORDER BY name")
@@ -280,8 +278,6 @@ class Handler(SimpleHTTPRequestHandler):
             return self._json(200, {"tags": tags})
 
         if parsed.path == "/api/products":
-            if not self._require_auth():
-                return
             params = parse_qs(parsed.query)
             search = params.get("search", [""])[0].strip().lower()
             tag = params.get("tag", [""])[0].strip().lower()

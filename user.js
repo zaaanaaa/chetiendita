@@ -9,6 +9,8 @@ const registerFormEl = document.getElementById("registerForm");
 const loginMessageEl = document.getElementById("loginMessage");
 const sessionLabelEl = document.getElementById("sessionLabel");
 const logoutBtnEl = document.getElementById("logoutBtn");
+const showLoginBtnEl = document.getElementById("showLoginBtn");
+const hideLoginBtnEl = document.getElementById("hideLoginBtn");
 const adminLinkEl = document.getElementById("adminLink");
 const searchEl = document.getElementById("search");
 const tagFilterEl = document.getElementById("tagFilter");
@@ -48,9 +50,12 @@ function money(value) {
 
 function updateView() {
   const loggedIn = !!currentUser;
-  loginSectionEl.classList.toggle("hidden", loggedIn);
-  catalogSectionEl.classList.toggle("hidden", !loggedIn);
+  if (loggedIn) {
+    loginSectionEl.classList.add("hidden");
+  }
+  catalogSectionEl.classList.remove("hidden");
   logoutBtnEl.classList.toggle("hidden", !loggedIn);
+  showLoginBtnEl.classList.toggle("hidden", loggedIn);
   adminLinkEl.classList.toggle("hidden", !loggedIn || currentUser.role !== "admin");
   sessionLabelEl.textContent = loggedIn ? `${currentUser.username} (${currentUser.role})` : "No logueado";
 }
@@ -133,8 +138,16 @@ loginFormEl.addEventListener("submit", async (event) => {
     loginFormEl.reset();
     updateView();
     loadProducts();
-  } catch {
-    loginMessageEl.textContent = "Credenciales invalidas o servidor no iniciado.";
+  } catch (error) {
+    if (error.message === "invalid_credentials") {
+      loginMessageEl.textContent = "Credenciales invalidas.";
+      return;
+    }
+    if (error.message === "network_error") {
+      loginMessageEl.textContent = "Servidor no iniciado o URL incorrecta.";
+      return;
+    }
+    loginMessageEl.textContent = "No se pudo iniciar sesion.";
   }
 });
 
@@ -170,10 +183,18 @@ logoutBtnEl.addEventListener("click", async () => {
   updateView();
 });
 
+showLoginBtnEl.addEventListener("click", () => {
+  loginSectionEl.classList.remove("hidden");
+});
+
+hideLoginBtnEl.addEventListener("click", () => {
+  loginSectionEl.classList.add("hidden");
+});
+
 searchEl.addEventListener("input", renderProducts);
 tagFilterEl.addEventListener("change", renderProducts);
 
 (async function init() {
   await refreshSession();
-  if (currentUser) await loadProducts();
+  await loadProducts();
 })();
