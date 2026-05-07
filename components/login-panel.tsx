@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useState, useTransition } from "react";
+import { FormEvent, useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
 type Mode = "login" | "register" | "recover" | "reset";
@@ -16,7 +16,7 @@ const MESSAGES: Record<string, string> = {
   invalid_email: "Ingresa un email valido.",
   invalid_gmail: "La cuenta debe registrarse con un Gmail valido.",
   invalid_code: "El codigo debe tener 6 numeros.",
-  expired_code: "El codigo vencio. Pide uno nuevo.",
+  expired_code: "El codigo vencio. Pedi uno nuevo.",
   username_or_email_exists: "Ese usuario o email ya existe.",
   network_error: "No se pudo conectar con el servidor.",
   register_success: "Cuenta creada. Ya podes iniciar sesion.",
@@ -32,6 +32,18 @@ export function LoginPanel({ open, onClose }: LoginPanelProps) {
   const [recoveryEmail, setRecoveryEmail] = useState("");
   const [previewCode, setPreviewCode] = useState("");
   const [isPending, startTransition] = useTransition();
+
+  // ── SCROLL LOCK: prevent body scroll when modal is open ──
+  useEffect(() => {
+    if (open) {
+      document.body.classList.add("modal-open");
+    } else {
+      document.body.classList.remove("modal-open");
+    }
+    return () => {
+      document.body.classList.remove("modal-open");
+    };
+  }, [open]);
 
   if (!open) {
     return null;
@@ -183,8 +195,8 @@ export function LoginPanel({ open, onClose }: LoginPanelProps) {
           </div>
         ) : null}
 
-        <p className="helper-text">
-          Usuarios demo: <code>admin/admin123</code> y <code>user/user123</code>.
+        <p className="helper-text" style={{ margin: "0.75rem 0 0.25rem", fontSize: "0.85rem" }}>
+          Usuarios demo: <code style={{ background: "rgba(0,0,0,0.05)", padding: "0.15rem 0.4rem", borderRadius: "6px", fontSize: "0.82rem" }}>admin/admin123</code> y <code style={{ background: "rgba(0,0,0,0.05)", padding: "0.15rem 0.4rem", borderRadius: "6px", fontSize: "0.82rem" }}>user/user123</code>.
         </p>
 
         <form className="stack-form" onSubmit={submitForm}>
@@ -245,7 +257,7 @@ export function LoginPanel({ open, onClose }: LoginPanelProps) {
             </>
           ) : null}
 
-          <button className="primary-button" type="submit" disabled={isPending}>
+          <button className="primary-button" type="submit" disabled={isPending} style={{ width: "100%", marginTop: "0.25rem" }}>
             {isPending
               ? "Procesando..."
               : mode === "login"

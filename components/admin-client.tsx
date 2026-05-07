@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useMemo, useState, useTransition } from "react";
+import { FormEvent, useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
 import { Product, ProductInput, Tag, User } from "@/lib/types";
@@ -55,6 +55,19 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
   const [tagModalOpen, setTagModalOpen] = useState(false);
   const [tagPickerOpen, setTagPickerOpen] = useState(false);
   const [isPending, startTransition] = useTransition();
+
+  // ── SCROLL LOCK: prevent body scroll when any modal is open ──
+  useEffect(() => {
+    const anyModalOpen = editorOpen || tagModalOpen || tagPickerOpen;
+    if (anyModalOpen) {
+      document.body.classList.add("modal-open");
+    } else {
+      document.body.classList.remove("modal-open");
+    }
+    return () => {
+      document.body.classList.remove("modal-open");
+    };
+  }, [editorOpen, tagModalOpen, tagPickerOpen]);
 
   const stats = useMemo(
     () => [
