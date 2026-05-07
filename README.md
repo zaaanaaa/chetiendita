@@ -1,41 +1,44 @@
-# Che Tiendita - Catalogo con BD
+# Che Tiendita - Next.js + TypeScript + SQLite
 
-Ahora el proyecto usa **base de datos real SQLite** (`data/catalog.db`) con backend en Python.
+Migracion de la app original a una sola aplicacion en `Next.js`, con `TypeScript`, rutas API dentro del mismo proyecto y persistencia en `SQLite`.
 
-## Lo que pediste
+## Stack
 
-- Login con roles `admin` y `user`.
-- Panel admin en **otra pagina**: `admin.html`.
-- CRUD de productos desde admin.
-- Atributos (etiquetas) como `electros`, `entretenimiento`, `ninos`.
-- Esos atributos los crea el admin y se usan para filtrar en busqueda.
+- `Next.js` con `App Router`
+- `TypeScript`
+- `better-sqlite3`
+- Base existente reutilizada: `data/catalog.db`
+
+## Funcionalidades
+
+- Catalogo publico con busqueda y filtro por etiquetas
+- Login y registro con sesiones en cookie `HttpOnly`
+- Panel admin en `/admin`
+- CRUD de productos
+- Gestion de etiquetas
 
 ## Credenciales iniciales
 
-- admin / admin123
-- user / user123
+- `admin / admin123`
+- `user / user123`
 
 ## Ejecutar
 
-1. Tener Python 3 instalado.
-2. Desde la carpeta del proyecto:
+1. Instalar dependencias:
 
 ```bash
-python server.py
+npm install
 ```
 
-3. Abrir:
-- Catalogo: `http://localhost:8000/index.html`
-- Admin: `http://localhost:8000/admin.html`
+2. Iniciar en desarrollo:
 
-Importante: no abras `index.html` directo con doble click (`file://...`), porque el login/registro necesita la API en `http://localhost:8000`.
+```bash
+npm run dev
+```
 
-## Base de datos
-
-- Archivo: `data/catalog.db`
-- Tablas: `users`, `sessions`, `tags`, `products`, `product_tags`
+3. Abrir `http://localhost:3000`
 
 ## Notas
 
-- Si no hay productos en BD, toma semilla inicial desde `data/products.json`.
-- La autenticacion es simple (sin hash) para entorno demo. En produccion se recomienda hash de passwords.
+- La base `data/catalog.db` se reutiliza y no se pisa si ya tiene datos.
+- Si la tabla de productos esta vacia, se carga seed desde `data/products.json`.
