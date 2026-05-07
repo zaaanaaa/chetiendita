@@ -10,9 +10,14 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const search = searchParams.get("search") || "";
   const tag = searchParams.get("tag") || "";
+  const rawSort = searchParams.get("sort") || "";
+  const sort =
+    rawSort === "newest" || rawSort === "bestselling" || rawSort === "featured"
+      ? rawSort
+      : "featured";
 
   return NextResponse.json({
-    products: listProducts({ search, tag }),
+    products: listProducts({ search, tag, sort }),
   });
 }
 

@@ -28,11 +28,6 @@ export function CatalogClient({ initialProducts, tags, user }: CatalogClientProp
   const [loginOpen, setLoginOpen] = useState(false);
   const [isPending, startTransition] = useTransition();
 
-  const featuredProducts = useMemo(
-    () => initialProducts.filter((product) => product.featured).slice(0, 3),
-    [initialProducts],
-  );
-
   const filteredProducts = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
 
@@ -62,32 +57,14 @@ export function CatalogClient({ initialProducts, tags, user }: CatalogClientProp
       />
 
       <main className="page-shell">
-        <section className="feature-strip">
-          <div className="info-card">
-            <p className="section-overline">Seleccion destacada</p>
-            <h2>Piezas nobles, aromas suaves y regalos listos para quedar bien.</h2>
-            <p>
-              El nuevo catalogo pone primero la experiencia: mejor lectura, filtros claros y una
-              presentacion mucho mas profesional para cada producto.
-            </p>
-          </div>
-          <div className="featured-grid">
-            {featuredProducts.map((product) => (
-              <article key={product.id} className="featured-card">
-                <span className="featured-badge">Destacado</span>
-                <h3>{product.name}</h3>
-                <p>{product.description}</p>
-                <strong>{formatCurrency(product.price)}</strong>
-              </article>
-            ))}
-          </div>
-        </section>
-
-        <section className="catalog-section">
+        <section className="catalog-section catalog-section-elevated">
           <div className="catalog-toolbar">
             <div>
               <p className="section-overline">Catalogo</p>
               <h2>Encontrar algo lindo ahora es mas facil.</h2>
+              <p className="catalog-intro">
+                Un recorrido mas limpio, con mejor lectura y productos pensados para mirar con calma.
+              </p>
             </div>
             <div className="filters-panel">
               <input
@@ -121,10 +98,12 @@ export function CatalogClient({ initialProducts, tags, user }: CatalogClientProp
             <div className="catalog-grid">
               {filteredProducts.map((product) => (
                 <article key={product.id} className="product-card">
-                  <div
-                    className="product-media"
-                    style={{ backgroundImage: `linear-gradient(rgba(29,20,14,.12), rgba(29,20,14,.12)), url(${product.image})` }}
-                  />
+                  <div className="product-media-wrap">
+                    <div
+                      className="product-media"
+                      style={{ backgroundImage: `linear-gradient(rgba(29,20,14,.12), rgba(29,20,14,.12)), url(${product.image})` }}
+                    />
+                  </div>
                   <div className="product-body">
                     <div className="product-meta">
                       <h3>{product.name}</h3>

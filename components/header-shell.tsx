@@ -36,10 +36,12 @@ export function HeaderShell({ user, onLoginClick, onLogoutClick }: HeaderShellPr
         </div>
         <div className="hero-copy">
           <p className="hero-kicker">Che Tiendita</p>
-          <h1>Objetos con alma para regalar, ordenar y hacer mas lindo el dia.</h1>
+          <h1 className="hero-title">
+            Objetos con alma para regalar, ordenar y hacer mas lindo el dia.
+          </h1>
           <p className="hero-description">
-            Una vitrina digital mas cuidada, con seleccion boutique, filtros simples y un
-            panel de gestion listo para crecer con tu catalogo.
+            Una vitrina digital mas cuidada, con seleccion boutique, filtros simples y un panel
+            de gestion listo para crecer con tu catalogo.
           </p>
         </div>
       </div>

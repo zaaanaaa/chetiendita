@@ -16,15 +16,18 @@ type ProductRow = {
   price: number;
   image: string;
   featured: number;
+  sold_count: number;
+  created_at: string;
 };
 
 type UserRow = {
   id: number;
   username: string;
+  email: string;
   role: "admin" | "user";
 };
 
-let database: Database.Database | null = null;
+let database: InstanceType<typeof Database> | null = null;
 
 function openDatabase() {
   if (database) {
@@ -40,11 +43,12 @@ function openDatabase() {
   return database;
 }
 
-function initializeDatabase(db: Database.Database) {
+function initializeDatabase(db: InstanceType<typeof Database>) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       username TEXT UNIQUE NOT NULL,
+      email TEXT UNIQUE,
       password TEXT NOT NULL,
       role TEXT NOT NULL CHECK(role IN ('admin', 'user'))
     );
@@ -66,7 +70,9 @@ function initializeDatabase(db: Database.Database) {
       description TEXT NOT NULL,
       price INTEGER NOT NULL,
       image TEXT NOT NULL,
-      featured INTEGER NOT NULL DEFAULT 0
+      featured INTEGER NOT NULL DEFAULT 0,
+      sold_count INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE TABLE IF NOT EXISTS product_tags (
@@ -76,15 +82,23 @@ function initializeDatabase(db: Database.Database) {
       FOREIGN KEY(product_id) REFERENCES products(id) ON DELETE CASCADE,
       FOREIGN KEY(tag_id) REFERENCES tags(id) ON DELETE CASCADE
     );
+
+    CREATE TABLE IF NOT EXISTS password_recovery_codes (
+      email TEXT PRIMARY KEY,
+      code TEXT NOT NULL,
+      expires_at TEXT NOT NULL
+    );
   `);
+
+  migrateDatabase(db);
 
   const userCount = db.prepare("SELECT COUNT(*) AS count FROM users").get() as { count: number };
   if (userCount.count === 0) {
     const insertUser = db.prepare(
-      "INSERT INTO users(username, password, role) VALUES (?, ?, ?)",
+      "INSERT INTO users(username, email, password, role) VALUES (?, ?, ?, ?)",
     );
-    insertUser.run("admin", "admin123", "admin");
-    insertUser.run("user", "user123", "user");
+    insertUser.run("admin", "admin@chetiendita.local", "admin123", "admin");
+    insertUser.run("user", "user@chetiendita.local", "user123", "user");
   }
 
   const productCount = db.prepare("SELECT COUNT(*) AS count FROM products").get() as { count: number };
@@ -107,6 +121,9 @@ function initializeDatabase(db: Database.Database) {
           item.image,
           item.featured ? 1 : 0,
         );
+        db.prepare(
+          "UPDATE products SET sold_count = ?, created_at = datetime('now', ?) WHERE id = ?",
+        ).run(Math.floor(Math.random() * 40) + 4, `-${Number(result.lastInsertRowid) * 2} days`, Number(result.lastInsertRowid));
         const tagName = (item.category || "general").trim().toLowerCase();
         insertTag.run(tagName);
         const tag = getTagId.get(tagName) as { id: number } | undefined;
@@ -120,12 +137,64 @@ function initializeDatabase(db: Database.Database) {
   }
 }
 
+function hasColumn(db: InstanceType<typeof Database>, tableName: string, columnName: string) {
+  const columns = db.prepare(`PRAGMA table_info(${tableName})`).all() as Array<{ name: string }>;
+  return columns.some((column) => column.name === columnName);
+}
+
+function migrateDatabase(db: InstanceType<typeof Database>) {
+  if (!hasColumn(db, "users", "email")) {
+    db.exec("ALTER TABLE users ADD COLUMN email TEXT");
+  }
+
+  if (!hasColumn(db, "products", "sold_count")) {
+    db.exec("ALTER TABLE products ADD COLUMN sold_count INTEGER NOT NULL DEFAULT 0");
+  }
+
+  if (!hasColumn(db, "products", "created_at")) {
+    db.exec("ALTER TABLE products ADD COLUMN created_at TEXT");
+  }
+
+  db.exec(`
+    DROP TABLE IF EXISTS password_recovery_codes;
+
+    CREATE TABLE password_recovery_codes (
+      email TEXT PRIMARY KEY,
+      code TEXT NOT NULL,
+      expires_at TEXT NOT NULL
+    );
+  `);
+
+  db.exec(`
+    UPDATE users
+    SET email = CASE username
+      WHEN 'admin' THEN 'admin@chetiendita.local'
+      WHEN 'user' THEN 'user@chetiendita.local'
+      ELSE username || '@chetiendita.local'
+    END
+    WHERE email IS NULL OR trim(email) = '';
+
+    UPDATE products
+    SET sold_count = CASE
+      WHEN sold_count IS NULL OR sold_count = 0 THEN (id * 7) + 3
+      ELSE sold_count
+    END;
+
+    UPDATE products
+    SET created_at = CASE
+      WHEN created_at IS NULL OR trim(created_at) = '' THEN datetime('now', '-' || (id * 2) || ' days')
+      ELSE created_at
+    END;
+  `);
+}
+
 const db = openDatabase();
 
 function mapUser(row: UserRow): User {
   return {
     id: row.id,
     username: row.username,
+    email: row.email,
     role: row.role,
   };
 }
@@ -154,19 +223,24 @@ function mapProduct(row: ProductRow): Product {
     price: row.price,
     image: row.image,
     featured: Boolean(row.featured),
+    soldCount: row.sold_count,
+    createdAt: row.created_at,
     tags: getTagsForProduct(row.id),
   };
 }
 
-export function listProducts(filters?: { search?: string; tag?: string }) {
-  const rows = db
-    .prepare("SELECT * FROM products ORDER BY featured DESC, id DESC")
-    .all() as ProductRow[];
+export function listProducts(filters?: {
+  search?: string;
+  tag?: string;
+  sort?: "featured" | "newest" | "bestselling";
+}) {
+  const rows = db.prepare("SELECT * FROM products").all() as ProductRow[];
 
   const search = filters?.search?.trim().toLowerCase() ?? "";
   const tag = filters?.tag?.trim().toLowerCase() ?? "";
+  const sort = filters?.sort ?? "featured";
 
-  return rows
+  const products = rows
     .map(mapProduct)
     .filter((product) => {
       const matchesSearch =
@@ -176,6 +250,19 @@ export function listProducts(filters?: { search?: string; tag?: string }) {
       const matchesTag = !tag || product.tags.includes(tag);
       return matchesSearch && matchesTag;
     });
+
+  if (sort === "bestselling") {
+    return products.sort((a, b) => b.soldCount - a.soldCount || b.id - a.id);
+  }
+
+  if (sort === "newest") {
+    return products.sort(
+      (a, b) =>
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime() || b.id - a.id,
+    );
+  }
+
+  return products.sort((a, b) => Number(b.featured) - Number(a.featured) || b.id - a.id);
 }
 
 export function listTags(): Tag[] {
@@ -184,21 +271,30 @@ export function listTags(): Tag[] {
 
 export function findUserByCredentials(username: string, password: string) {
   const row = db
-    .prepare("SELECT id, username, role FROM users WHERE username = ? AND password = ?")
-    .get(username, password) as UserRow | undefined;
+    .prepare(
+      "SELECT id, username, email, role FROM users WHERE (username = ? OR email = ?) AND password = ?",
+    )
+    .get(username, username.toLowerCase(), password) as UserRow | undefined;
   return row ? mapUser(row) : null;
 }
 
-export function createUser(username: string, password: string) {
+export function createUser(username: string, email: string, password: string) {
   const result = db
-    .prepare("INSERT INTO users(username, password, role) VALUES (?, ?, 'user')")
-    .run(username, password);
+    .prepare("INSERT INTO users(username, email, password, role) VALUES (?, ?, ?, 'user')")
+    .run(username, email, password);
 
   const row = db
-    .prepare("SELECT id, username, role FROM users WHERE id = ?")
+    .prepare("SELECT id, username, email, role FROM users WHERE id = ?")
     .get(Number(result.lastInsertRowid)) as UserRow;
 
   return mapUser(row);
+}
+
+export function findUserByEmail(email: string) {
+  const row = db
+    .prepare("SELECT id, username, email, role FROM users WHERE email = ?")
+    .get(email.toLowerCase()) as UserRow | undefined;
+  return row ? mapUser(row) : null;
 }
 
 export function createSession(userId: number, token: string) {
@@ -210,6 +306,7 @@ export function findSessionUser(token: string): SessionUser | null {
     .prepare(
       `
       SELECT u.id, u.username, u.role
+      , u.email
       FROM sessions s
       JOIN users u ON u.id = s.user_id
       WHERE s.token = ?
@@ -237,6 +334,46 @@ export function createTag(name: string) {
     id: Number(result.lastInsertRowid),
     name,
   };
+}
+
+export function createPasswordRecoveryCode(email: string) {
+  const code = String(Math.floor(100000 + Math.random() * 900000));
+  const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+
+  db.prepare(
+    `
+    INSERT INTO password_recovery_codes(email, code, expires_at)
+    VALUES (?, ?, ?)
+    ON CONFLICT(email) DO UPDATE SET code = excluded.code, expires_at = excluded.expires_at
+    `,
+  ).run(email.toLowerCase(), code, expiresAt);
+
+  return { code, expiresAt };
+}
+
+export function resetPasswordWithRecoveryCode(code: string, password: string) {
+  const row = db
+    .prepare(
+      `
+      SELECT email, expires_at
+      FROM password_recovery_codes
+      WHERE code = ?
+      `,
+    )
+    .get(code) as { email: string; expires_at: string } | undefined;
+
+  if (!row) {
+    return { ok: false as const, error: "invalid_code" };
+  }
+
+  if (new Date(row.expires_at).getTime() < Date.now()) {
+    db.prepare("DELETE FROM password_recovery_codes WHERE email = ?").run(row.email);
+    return { ok: false as const, error: "expired_code" };
+  }
+
+  db.prepare("UPDATE users SET password = ? WHERE email = ?").run(password, row.email);
+  db.prepare("DELETE FROM password_recovery_codes WHERE email = ?").run(row.email);
+  return { ok: true as const };
 }
 
 function syncProductTags(productId: number, tags: string[]) {
