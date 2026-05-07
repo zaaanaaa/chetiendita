@@ -4,7 +4,7 @@ import path from "node:path";
 import Database from "better-sqlite3";
 
 import productsSeed from "@/data/products.json";
-import { Product, ProductInput, SessionUser, Tag, User } from "@/lib/types";
+import { Order, OrderInput, OrderItem, OrderStatus, Product, ProductInput, SessionUser, Tag, User } from "@/lib/types";
 
 const ROOT = process.cwd();
 const DB_PATH = path.join(ROOT, "data", "catalog.db");
@@ -18,6 +18,7 @@ type ProductRow = {
   featured: number;
   sold_count: number;
   created_at: string;
+  variants: string | null;
 };
 
 type UserRow = {
@@ -25,6 +26,27 @@ type UserRow = {
   username: string;
   email: string;
   role: "admin" | "user";
+};
+
+type OrderRow = {
+  id: number;
+  customer_name: string;
+  customer_phone: string;
+  notes: string;
+  status: string;
+  total: number;
+  created_at: string;
+};
+
+type OrderItemRow = {
+  id: number;
+  order_id: number;
+  product_id: number;
+  product_name: string;
+  variant: string;
+  quantity: number;
+  unit_price: number;
+  image: string;
 };
 
 let database: InstanceType<typeof Database> | null = null;
@@ -87,6 +109,28 @@ function initializeDatabase(db: InstanceType<typeof Database>) {
       email TEXT PRIMARY KEY,
       code TEXT NOT NULL,
       expires_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS orders (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      customer_name TEXT NOT NULL,
+      customer_phone TEXT NOT NULL DEFAULT '',
+      notes TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'accepted', 'modified', 'rejected')),
+      total INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS order_items (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      order_id INTEGER NOT NULL,
+      product_id INTEGER NOT NULL,
+      product_name TEXT NOT NULL,
+      variant TEXT NOT NULL DEFAULT '',
+      quantity INTEGER NOT NULL DEFAULT 1,
+      unit_price INTEGER NOT NULL DEFAULT 0,
+      image TEXT NOT NULL DEFAULT '',
+      FOREIGN KEY(order_id) REFERENCES orders(id) ON DELETE CASCADE
     );
   `);
 
@@ -155,6 +199,10 @@ function migrateDatabase(db: InstanceType<typeof Database>) {
     db.exec("ALTER TABLE products ADD COLUMN created_at TEXT");
   }
 
+  if (!hasColumn(db, "products", "variants")) {
+    db.exec("ALTER TABLE products ADD COLUMN variants TEXT NOT NULL DEFAULT '[]'");
+  }
+
   db.exec(`
     DROP TABLE IF EXISTS password_recovery_codes;
 
@@ -215,6 +263,16 @@ function getTagsForProduct(productId: number) {
   return rows.map((row) => row.name);
 }
 
+function parseVariants(raw: string | null): string[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((v: unknown) => typeof v === "string" && v.trim()) : [];
+  } catch {
+    return [];
+  }
+}
+
 function mapProduct(row: ProductRow): Product {
   return {
     id: row.id,
@@ -226,6 +284,7 @@ function mapProduct(row: ProductRow): Product {
     soldCount: row.sold_count,
     createdAt: row.created_at,
     tags: getTagsForProduct(row.id),
+    variants: parseVariants(row.variants),
   };
 }
 
@@ -394,11 +453,12 @@ function syncProductTags(productId: number, tags: string[]) {
 }
 
 export function createProduct(input: ProductInput) {
+  const variantsJson = JSON.stringify(input.variants || []);
   const result = db
     .prepare(
-      "INSERT INTO products(name, description, price, image, featured) VALUES (?, ?, ?, ?, ?)",
+      "INSERT INTO products(name, description, price, image, featured, variants) VALUES (?, ?, ?, ?, ?, ?)",
     )
-    .run(input.name, input.description, input.price, input.image, input.featured ? 1 : 0);
+    .run(input.name, input.description, input.price, input.image, input.featured ? 1 : 0, variantsJson);
 
   const productId = Number(result.lastInsertRowid);
   syncProductTags(productId, input.tags);
@@ -408,13 +468,14 @@ export function createProduct(input: ProductInput) {
 }
 
 export function updateProduct(productId: number, input: ProductInput) {
+  const variantsJson = JSON.stringify(input.variants || []);
   db.prepare(
     `
     UPDATE products
-    SET name = ?, description = ?, price = ?, image = ?, featured = ?
+    SET name = ?, description = ?, price = ?, image = ?, featured = ?, variants = ?
     WHERE id = ?
     `,
-  ).run(input.name, input.description, input.price, input.image, input.featured ? 1 : 0, productId);
+  ).run(input.name, input.description, input.price, input.image, input.featured ? 1 : 0, variantsJson, productId);
 
   syncProductTags(productId, input.tags);
 
@@ -429,4 +490,74 @@ export function deleteProduct(productId: number) {
 export function findProduct(productId: number) {
   const row = db.prepare("SELECT * FROM products WHERE id = ?").get(productId) as ProductRow | undefined;
   return row ? mapProduct(row) : null;
+}
+
+/* ─── ORDERS ─── */
+
+function mapOrderItems(orderId: number): OrderItem[] {
+  const rows = db
+    .prepare("SELECT * FROM order_items WHERE order_id = ?")
+    .all(orderId) as OrderItemRow[];
+
+  return rows.map((row) => ({
+    id: row.id,
+    productId: row.product_id,
+    productName: row.product_name,
+    variant: row.variant,
+    quantity: row.quantity,
+    unitPrice: row.unit_price,
+    image: row.image,
+  }));
+}
+
+function mapOrder(row: OrderRow): Order {
+  return {
+    id: row.id,
+    customerName: row.customer_name,
+    customerPhone: row.customer_phone,
+    notes: row.notes,
+    status: row.status as OrderStatus,
+    total: row.total,
+    createdAt: row.created_at,
+    items: mapOrderItems(row.id),
+  };
+}
+
+export function createOrder(input: OrderInput & { total: number }) {
+  const result = db
+    .prepare(
+      "INSERT INTO orders(customer_name, customer_phone, notes, status, total) VALUES (?, ?, ?, 'pending', ?)",
+    )
+    .run(input.customerName, input.customerPhone, input.notes, input.total);
+
+  const orderId = Number(result.lastInsertRowid);
+
+  const insertItem = db.prepare(
+    "INSERT INTO order_items(order_id, product_id, product_name, variant, quantity, unit_price, image) VALUES (?, ?, ?, ?, ?, ?, ?)",
+  );
+
+  for (const item of input.items) {
+    insertItem.run(orderId, item.productId, item.productName, item.variant || "", item.quantity, item.unitPrice, item.image || "");
+  }
+
+  const row = db.prepare("SELECT * FROM orders WHERE id = ?").get(orderId) as OrderRow;
+  return mapOrder(row);
+}
+
+export function listOrders() {
+  const rows = db
+    .prepare("SELECT * FROM orders ORDER BY created_at DESC")
+    .all() as OrderRow[];
+  return rows.map(mapOrder);
+}
+
+export function findOrder(orderId: number) {
+  const row = db.prepare("SELECT * FROM orders WHERE id = ?").get(orderId) as OrderRow | undefined;
+  return row ? mapOrder(row) : null;
+}
+
+export function updateOrderStatus(orderId: number, status: OrderStatus) {
+  db.prepare("UPDATE orders SET status = ? WHERE id = ?").run(status, orderId);
+  const row = db.prepare("SELECT * FROM orders WHERE id = ?").get(orderId) as OrderRow | undefined;
+  return row ? mapOrder(row) : null;
 }

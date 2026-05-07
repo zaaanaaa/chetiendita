@@ -1,4 +1,4 @@
-import { ProductInput } from "@/lib/types";
+import { OrderInput, ProductInput } from "@/lib/types";
 
 export function normalizeTagName(value: string) {
   return value.trim().toLowerCase();
@@ -91,6 +91,7 @@ export function validateProductInput(input: ProductInput) {
     image: input.image.trim(),
     featured: Boolean(input.featured),
     tags: Array.from(new Set(input.tags.map(normalizeTagName).filter(Boolean))),
+    variants: (input.variants || []).map((v) => v.trim()).filter(Boolean),
   };
 
   if (!payload.name || !payload.description || !payload.image) {
@@ -111,4 +112,38 @@ export function validateProductInput(input: ProductInput) {
   }
 
   return { ok: true as const, product: payload };
+}
+
+export function validateOrderInput(input: OrderInput) {
+  const customerName = (input.customerName || "").trim();
+  const customerPhone = (input.customerPhone || "").trim();
+  const notes = (input.notes || "").trim();
+  const items = input.items || [];
+
+  if (!customerName || customerName.length < 2) {
+    return { ok: false as const, error: "missing_customer_name" };
+  }
+
+  if (items.length === 0) {
+    return { ok: false as const, error: "empty_cart" };
+  }
+
+  for (const item of items) {
+    if (!item.productId || item.quantity < 1) {
+      return { ok: false as const, error: "invalid_item" };
+    }
+  }
+
+  const total = items.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
+
+  return {
+    ok: true as const,
+    order: {
+      customerName,
+      customerPhone,
+      notes,
+      items,
+      total,
+    },
+  };
 }

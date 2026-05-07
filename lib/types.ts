@@ -26,6 +26,7 @@ export interface Product {
   soldCount: number;
   createdAt: string;
   tags: string[];
+  variants: string[];
 }
 
 export interface ProductInput {
@@ -35,6 +36,46 @@ export interface ProductInput {
   image: string;
   featured: boolean;
   tags: string[];
+  variants?: string[];
+}
+
+export type OrderStatus = "pending" | "accepted" | "modified" | "rejected";
+
+export interface OrderItem {
+  id: number;
+  productId: number;
+  productName: string;
+  variant: string;
+  quantity: number;
+  unitPrice: number;
+  image: string;
+}
+
+export interface Order {
+  id: number;
+  customerName: string;
+  customerPhone: string;
+  notes: string;
+  status: OrderStatus;
+  total: number;
+  createdAt: string;
+  items: OrderItem[];
+}
+
+export interface OrderItemInput {
+  productId: number;
+  productName: string;
+  variant: string;
+  quantity: number;
+  unitPrice: number;
+  image: string;
+}
+
+export interface OrderInput {
+  customerName: string;
+  customerPhone: string;
+  notes: string;
+  items: OrderItemInput[];
 }
 
 export interface AuthResponse {

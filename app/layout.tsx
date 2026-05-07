@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { Fraunces, Manrope } from "next/font/google";
 
+import { CartProvider } from "@/components/cart-context";
+
 import "@/app/globals.css";
 
 const fraunces = Fraunces({
@@ -21,7 +23,9 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="es">
-      <body className={`${fraunces.variable} ${manrope.variable}`}>{children}</body>
+      <body className={`${fraunces.variable} ${manrope.variable}`}>
+        <CartProvider>{children}</CartProvider>
+      </body>
     </html>
   );
 }
