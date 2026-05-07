@@ -10,62 +10,67 @@ interface HeaderShellProps {
 
 export function HeaderShell({ user, onLoginClick, onLogoutClick }: HeaderShellProps) {
   return (
-    <header className="hero-shell">
-      <div className="hero-surface">
-        <div className="topbar">
-          <div className="eyebrow" style={{ color: "rgba(255,255,255,0.4)" }}>
-            ✦ Curaduria cotidiana
+    <header className="header-container">
+      {/* Navigation Bar */}
+      <nav className="navbar">
+        <div className="navbar-content">
+          <Link href="/" className="navbar-logo">
+            <span className="logo-text">Che Tiendita</span>
+          </Link>
+
+          <div className="navbar-menu">
+            <a href="#catalogo" className="nav-link active">
+              Catálogo
+            </a>
+            <a href="#sobre-nosotros" className="nav-link">
+              Sobre Nosotros
+            </a>
+            <a href="#contacto" className="nav-link">
+              Contacto
+            </a>
           </div>
-          <div className="session-cluster">
-            <span className="session-pill">
-              {user ? `${user.username} · ${user.role}` : "✧ Explorando como invitado"}
-            </span>
-            {user?.role === "admin" ? (
-              <Link
-                href="/admin"
-                className="secondary-button"
-                style={{
-                  background: "rgba(255,255,255,0.12)",
-                  borderColor: "rgba(255,255,255,0.18)",
-                  color: "#fff",
-                }}
-              >
-                Ir al panel
+
+          <div className="navbar-actions">
+            {user?.role === "admin" && (
+              <Link href="/admin" className="nav-button admin-button">
+                Panel de Admin
               </Link>
-            ) : null}
+            )}
             {user ? (
-              <button
-                className="secondary-button"
-                type="button"
-                onClick={onLogoutClick}
-                style={{
-                  background: "rgba(255,255,255,0.12)",
-                  borderColor: "rgba(255,255,255,0.18)",
-                  color: "#fff",
-                }}
-              >
-                Cerrar sesion
-              </button>
+              <>
+                <span className="user-info">{user.username}</span>
+                <button
+                  className="nav-button logout-button"
+                  type="button"
+                  onClick={onLogoutClick}
+                >
+                  Salir
+                </button>
+              </>
             ) : (
-              <button
-                className="primary-button"
-                type="button"
-                onClick={onLoginClick}
-              >
-                Acceso
+              <button className="nav-button login-button" type="button" onClick={onLoginClick}>
+                Iniciar Sesión
               </button>
             )}
           </div>
         </div>
-        <div className="hero-copy">
-          <p className="hero-kicker">Che Tiendita</p>
-          <h1 className="hero-title">
-            Objetos con alma para regalar y hacer mas lindo el dia.
-          </h1>
-          <p className="hero-description">
-            Una vitrina digital cuidada, con seleccion boutique, filtros simples y un catalogo
-            pensado para mirar con calma.
-          </p>
+      </nav>
+
+      {/* Hero Section */}
+      <div className="hero-surface">
+        <div className="hero-content">
+          <div className="hero-copy">
+            <p className="hero-kicker">Bienvenido a Che Tiendita</p>
+            <h1 className="hero-title">Objetos lindos para regalar y ordenar</h1>
+            <p className="hero-description">
+              Descubre nuestra exclusiva colección de productos artesanales, perfectos para
+              decorar tu hogar, regalar en ocasiones especiales o simplemente organizar tu espacio
+              con estilo.
+            </p>
+            <button className="cta-button" type="button">
+              Explorar Catálogo
+            </button>
+          </div>
         </div>
       </div>
     </header>

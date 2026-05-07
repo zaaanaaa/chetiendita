@@ -128,6 +128,15 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
     setTagPickerOpen(false);
   }
 
+  function openCreateProductModal() {
+    setEditingId(null);
+    setProductForm(EMPTY_FORM);
+    setProductMessage("");
+    setTagMessage("");
+    setTagPickerOpen(false);
+    setEditorOpen(true);
+  }
+
   function toggleTag(tagNameValue: string) {
     setProductForm((current) => {
       const exists = current.tags.includes(tagNameValue);
@@ -259,122 +268,15 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
         ))}
       </section>
 
-      <section className="admin-grid admin-grid-single">
-        <article className="admin-panel">
-          <div className="panel-heading">
-            <div>
-              <p className="section-overline">Editor</p>
-              <h2>Nuevo producto</h2>
-            </div>
-          </div>
-          <form className="stack-form" onSubmit={submitProduct}>
-            <div className="editor-grid">
-              <input
-                type="text"
-                value={productForm.name}
-                onChange={(event) => setProductForm({ ...productForm, name: event.target.value })}
-                placeholder="Nombre"
-                required
-              />
-              <input
-                type="number"
-                min={1}
-                value={productForm.price || ""}
-                onChange={(event) =>
-                  setProductForm({ ...productForm, price: Number(event.target.value) })
-                }
-                placeholder="Precio"
-                required
-              />
-            </div>
-            <input
-              type="url"
-              value={productForm.image}
-              onChange={(event) => setProductForm({ ...productForm, image: event.target.value })}
-              placeholder="URL de imagen"
-              required
-            />
-            <textarea
-              rows={4}
-              value={productForm.description}
-              onChange={(event) =>
-                setProductForm({ ...productForm, description: event.target.value })
-              }
-              placeholder="Descripcion"
-              required
-            />
-            <label className="checkbox-row">
-              <input
-                type="checkbox"
-                checked={productForm.featured}
-                onChange={(event) =>
-                  setProductForm({ ...productForm, featured: event.target.checked })
-                }
-              />
-              Marcar como destacado
-            </label>
-
-            <div className="inline-heading">
-              <div>
-                <p className="section-overline">Etiquetas</p>
-                <h3 className="subsection-title">Elegi etiquetas sin recargar el formulario</h3>
-              </div>
-              <div className="inline-actions inline-actions-tight">
-                <button
-                  className="secondary-button"
-                  type="button"
-                  onClick={() => setTagPickerOpen(true)}
-                >
-                  Elegir etiquetas
-                </button>
-                <button
-                  className="secondary-button"
-                  type="button"
-                  onClick={() => {
-                    setTagMessage("");
-                    setTagModalOpen(true);
-                  }}
-                >
-                  Crear nueva etiqueta
-                </button>
-              </div>
-            </div>
-
-            <div className="tag-selection-summary">
-              {productForm.tags.length > 0 ? (
-                <div className="tag-row">
-                  {productForm.tags.map((tag) => (
-                    <span key={tag} className="tag-chip">
-                      #{tag}
-                    </span>
-                  ))}
-                </div>
-              ) : (
-                <p className="helper-text">Todavia no hay etiquetas seleccionadas.</p>
-              )}
-            </div>
-
-            <div className="inline-actions">
-              <button className="primary-button" type="submit" disabled={isPending}>
-                Crear producto
-              </button>
-              <button className="secondary-button" type="button" onClick={resetProductForm}>
-                Cancelar
-              </button>
-            </div>
-          </form>
-          <p className={`feedback ${tagMessage || productMessage ? "visible" : ""}`}>
-            {productMessage || tagMessage}
-          </p>
-        </article>
-      </section>
-
       <section className="admin-panel">
         <div className="panel-heading">
           <div>
             <p className="section-overline">Inventario</p>
             <h2>Productos cargados</h2>
           </div>
+          <button className="primary-button" type="button" onClick={openCreateProductModal}>
+            Nuevo producto
+          </button>
         </div>
 
         <div className="inventory-toolbar">
@@ -469,7 +371,7 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
             <div className="modal-header">
               <div>
                 <p className="section-overline">Editor</p>
-                <h2>Editar producto</h2>
+                <h2>{editingId ? "Editar producto" : "Nuevo producto"}</h2>
               </div>
               <button
                 className="icon-button"
@@ -533,25 +435,13 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
                   <p className="section-overline">Etiquetas</p>
                   <h3 className="subsection-title">Elegi etiquetas sin recargar el formulario</h3>
                 </div>
-                <div className="inline-actions inline-actions-tight">
-                  <button
-                    className="secondary-button"
-                    type="button"
-                    onClick={() => setTagPickerOpen(true)}
-                  >
-                    Elegir etiquetas
-                  </button>
-                  <button
-                    className="secondary-button"
-                    type="button"
-                    onClick={() => {
-                      setTagMessage("");
-                      setTagModalOpen(true);
-                    }}
-                  >
-                    Crear nueva etiqueta
-                  </button>
-                </div>
+                <button
+                  className="secondary-button"
+                  type="button"
+                  onClick={() => setTagPickerOpen(true)}
+                >
+                  Elegir etiquetas
+                </button>
               </div>
 
               <div className="tag-selection-summary">
@@ -570,7 +460,7 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
 
               <div className="inline-actions">
                 <button className="primary-button" type="submit" disabled={isPending}>
-                  Guardar cambios
+                  {editingId ? "Guardar cambios" : "Crear producto"}
                 </button>
                 <button className="secondary-button" type="button" onClick={resetProductForm}>
                   Cancelar
@@ -586,7 +476,7 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
 
       {tagModalOpen ? (
         <div
-          className="modal-backdrop"
+          className="modal-backdrop modal-backdrop-front"
           role="presentation"
           onClick={() => {
             setTagModalOpen(false);
@@ -684,6 +574,16 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
                 Seleccionadas: <strong>{productForm.tags.length}</strong>
               </p>
               <div className="inline-actions inline-actions-tight">
+                <button
+                  className="secondary-button"
+                  type="button"
+                  onClick={() => {
+                    setTagMessage("");
+                    setTagModalOpen(true);
+                  }}
+                >
+                  Crear nueva etiqueta
+                </button>
                 <button
                   className="secondary-button"
                   type="button"

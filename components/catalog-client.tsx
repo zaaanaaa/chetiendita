@@ -57,7 +57,7 @@ export function CatalogClient({ initialProducts, tags, user }: CatalogClientProp
       />
 
       <main className="page-shell">
-        <section className="catalog-section catalog-section-elevated">
+        <section className="catalog-section catalog-section-elevated" id="catalogo">
           <div className="catalog-toolbar">
             <div>
               <p className="section-overline">Catalogo</p>
@@ -122,6 +122,72 @@ export function CatalogClient({ initialProducts, tags, user }: CatalogClientProp
               ))}
             </div>
           )}
+        </section>
+
+        {/* About Section */}
+        <section className="info-section" id="sobre-nosotros">
+          <div className="section-content">
+            <div className="section-header">
+              <p className="section-overline">Sobre Nosotros</p>
+              <h2>Quiénes Somos</h2>
+            </div>
+            <div className="section-body">
+              <p>
+                En Che Tiendita, creemos que cada objeto cuenta una historia. Nos dedicamos a curar
+                una colección exclusiva de productos artesanales y de diseño, seleccionados con cuidado
+                para traer belleza y funcionalidad a tu hogar.
+              </p>
+              <p>
+                Trabajamos directamente con artesanos locales y diseñadores independientes para ofrecer
+                piezas únicas que no encontrarás en otro lado. Cada producto en nuestro catálogo es elegido
+                porque creemos que merece un lugar especial en tu vida.
+              </p>
+              <div className="features-grid">
+                <div className="feature-card">
+                  <h3>Productos Únicos</h3>
+                  <p>Selección cuidada de artículos exclusivos y de calidad</p>
+                </div>
+                <div className="feature-card">
+                  <h3>Artesanía Local</h3>
+                  <p>Apoyo directo a artesanos y diseñadores independientes</p>
+                </div>
+                <div className="feature-card">
+                  <h3>Diseño Pensado</h3>
+                  <p>Cada pieza combina estética, funcionalidad y propósito</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Contact Section */}
+        <section className="info-section" id="contacto">
+          <div className="section-content">
+            <div className="section-header">
+              <p className="section-overline">Contacto</p>
+              <h2>Ponte en Contacto</h2>
+            </div>
+            <div className="section-body">
+              <div className="contact-grid">
+                <div className="contact-card">
+                  <h3>Email</h3>
+                  <p><a href="mailto:info@chetiendita.com">info@chetiendita.com</a></p>
+                </div>
+                <div className="contact-card">
+                  <h3>Redes Sociales</h3>
+                  <p>Síguenos en Instagram y Facebook para novedades</p>
+                </div>
+                <div className="contact-card">
+                  <h3>Ubicación</h3>
+                  <p>Córdoba, Argentina</p>
+                </div>
+              </div>
+              <div className="contact-message">
+                <p>¿Tienes una pregunta? ¿Sugerencias? Nos encantaría escucharte.</p>
+                <p>Envíanos un mensaje y nos pondremos en contacto lo antes posible.</p>
+              </div>
+            </div>
+          </div>
         </section>
       </main>
 
