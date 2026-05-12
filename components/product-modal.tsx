@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { useCart } from "@/components/cart-context";
 import { Product } from "@/lib/types";
@@ -18,25 +18,60 @@ function formatCurrency(value: number) {
   }).format(value);
 }
 
+function getEffectivePrice(product: Product) {
+  return product.discountPrice ?? product.price;
+}
+
+function getDiscountPercentage(product: Product) {
+  if (!product.discountPrice || product.discountPrice >= product.price) {
+    return null;
+  }
+
+  return Math.round(((product.price - product.discountPrice) / product.price) * 100);
+}
+
 export function ProductModal({ product, onClose }: ProductModalProps) {
   const { addItem } = useCart();
   const [quantity, setQuantity] = useState(1);
-  const [selectedVariant, setSelectedVariant] = useState(
-    product.variants.length > 0 ? product.variants[0] : "",
-  );
   const [added, setAdded] = useState(false);
+  const [selectedOptions, setSelectedOptions] = useState<Record<string, string>>({});
+
+  const effectivePrice = getEffectivePrice(product);
+  const discountPercentage = getDiscountPercentage(product);
+
+  useEffect(() => {
+    const defaults = Object.fromEntries(
+      product.variantGroups
+        .filter((group) => group.options.length > 0)
+        .map((group) => [group.name, group.options[0]]),
+    );
+    setQuantity(1);
+    setSelectedOptions(defaults);
+    setAdded(false);
+  }, [product]);
+
+  const variantLabel = useMemo(() => {
+    const entries = product.variantGroups
+      .map((group) => {
+        const option = selectedOptions[group.name];
+        return option ? `${group.name}: ${option}` : null;
+      })
+      .filter(Boolean);
+
+    return entries.join(" · ");
+  }, [product.variantGroups, selectedOptions]);
 
   function handleAdd() {
     addItem({
       productId: product.id,
       productName: product.name,
-      variant: selectedVariant,
-      unitPrice: product.price,
+      variant: variantLabel,
+      unitPrice: effectivePrice,
       image: product.image,
       quantity,
     });
     setAdded(true);
-    setTimeout(() => setAdded(false), 1600);
+    window.setTimeout(() => setAdded(false), 1600);
   }
 
   return (
@@ -49,7 +84,7 @@ export function ProductModal({ product, onClose }: ProductModalProps) {
         onClick={(e) => e.stopPropagation()}
       >
         <button className="modal-close-btn" type="button" onClick={onClose} aria-label="Cerrar">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
         </button>
 
         <div className="product-modal-layout">
@@ -70,26 +105,42 @@ export function ProductModal({ product, onClose }: ProductModalProps) {
                 </div>
               )}
               <h2>{product.name}</h2>
-              <p className="product-modal-price">{formatCurrency(product.price)}</p>
+              <div className="product-price-stack product-price-stack-modal">
+                {product.discountPrice ? (
+                  <span className="product-price-original">{formatCurrency(product.price)}</span>
+                ) : null}
+                <p className="product-modal-price">{formatCurrency(effectivePrice)}</p>
+                {discountPercentage ? <span className="product-discount-badge">-{discountPercentage}%</span> : null}
+              </div>
             </div>
 
             <p className="product-modal-description">{product.description}</p>
+            <div className="product-modal-support">
+              <span className="product-modal-support-pill">Carrito persistente</span>
+              <span className="product-modal-support-pill">Confirmación manual por WhatsApp</span>
+            </div>
 
-            {product.variants.length > 0 && (
+            {product.variantGroups.length > 0 && (
               <div className="product-modal-variants">
-                <label className="product-modal-label">Modelo</label>
-                <div className="variant-chips">
-                  {product.variants.map((v) => (
-                    <button
-                      key={v}
-                      type="button"
-                      className={`variant-chip ${selectedVariant === v ? "active" : ""}`}
-                      onClick={() => setSelectedVariant(v)}
-                    >
-                      {v}
-                    </button>
-                  ))}
-                </div>
+                {product.variantGroups.map((group) => (
+                  <div key={group.name} className="product-variant-group">
+                    <label className="product-modal-label">{group.name}</label>
+                    <div className="variant-chips">
+                      {group.options.map((option) => (
+                        <button
+                          key={option}
+                          type="button"
+                          className={`variant-chip ${selectedOptions[group.name] === option ? "active" : ""}`}
+                          onClick={() =>
+                            setSelectedOptions((current) => ({ ...current, [group.name]: option }))
+                          }
+                        >
+                          {option}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
 
@@ -117,16 +168,17 @@ export function ProductModal({ product, onClose }: ProductModalProps) {
 
             <div className="product-modal-footer">
               <p className="product-modal-subtotal">
-                Subtotal: <strong>{formatCurrency(product.price * quantity)}</strong>
+                Subtotal: <strong>{formatCurrency(effectivePrice * quantity)}</strong>
               </p>
               <button
                 className={`add-to-cart-btn ${added ? "added" : ""}`}
                 type="button"
                 onClick={handleAdd}
               >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="9" cy="21" r="1" /><circle cx="20" cy="21" r="1" /><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" /></svg>
                 {added ? "¡Agregado!" : "Agregar al carrito"}
               </button>
+              {added ? <p className="product-modal-feedback">Se guardó en tu carrito y podés seguir explorando.</p> : null}
             </div>
           </div>
         </div>

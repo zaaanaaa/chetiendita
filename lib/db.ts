@@ -4,7 +4,20 @@ import path from "node:path";
 import Database from "better-sqlite3";
 
 import productsSeed from "@/data/products.json";
-import { Order, OrderInput, OrderItem, OrderStatus, Product, ProductInput, SessionUser, Tag, User } from "@/lib/types";
+import {
+  Order,
+  OrderInput,
+  OrderItem,
+  OrderStatus,
+  OrderUpdateInput,
+  Product,
+  ProductInput,
+  ProductVariantGroup,
+  SessionUser,
+  Tag,
+  User,
+} from "@/lib/types";
+import { flattenVariantGroups, normalizeVariantGroups } from "@/lib/validation";
 
 const ROOT = process.cwd();
 const DB_PATH = path.join(ROOT, "data", "catalog.db");
@@ -14,11 +27,13 @@ type ProductRow = {
   name: string;
   description: string;
   price: number;
+  discount_price: number | null;
   image: string;
   featured: number;
   sold_count: number;
   created_at: string;
   variants: string | null;
+  variant_groups: string | null;
 };
 
 type UserRow = {
@@ -30,6 +45,7 @@ type UserRow = {
 
 type OrderRow = {
   id: number;
+  user_id: number | null;
   customer_name: string;
   customer_phone: string;
   notes: string;
@@ -91,10 +107,13 @@ function initializeDatabase(db: InstanceType<typeof Database>) {
       name TEXT NOT NULL,
       description TEXT NOT NULL,
       price INTEGER NOT NULL,
+      discount_price INTEGER,
       image TEXT NOT NULL,
       featured INTEGER NOT NULL DEFAULT 0,
       sold_count INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      variants TEXT NOT NULL DEFAULT '[]',
+      variant_groups TEXT NOT NULL DEFAULT '[]'
     );
 
     CREATE TABLE IF NOT EXISTS product_tags (
@@ -113,6 +132,7 @@ function initializeDatabase(db: InstanceType<typeof Database>) {
 
     CREATE TABLE IF NOT EXISTS orders (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER,
       customer_name TEXT NOT NULL,
       customer_phone TEXT NOT NULL DEFAULT '',
       notes TEXT NOT NULL DEFAULT '',
@@ -124,7 +144,7 @@ function initializeDatabase(db: InstanceType<typeof Database>) {
     CREATE TABLE IF NOT EXISTS order_items (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       order_id INTEGER NOT NULL,
-      product_id INTEGER NOT NULL,
+      product_id INTEGER NOT NULL DEFAULT 0,
       product_name TEXT NOT NULL,
       variant TEXT NOT NULL DEFAULT '',
       quantity INTEGER NOT NULL DEFAULT 1,
@@ -148,7 +168,10 @@ function initializeDatabase(db: InstanceType<typeof Database>) {
   const productCount = db.prepare("SELECT COUNT(*) AS count FROM products").get() as { count: number };
   if (productCount.count === 0) {
     const insertProduct = db.prepare(
-      "INSERT INTO products(name, description, price, image, featured) VALUES (?, ?, ?, ?, ?)",
+      `
+      INSERT INTO products(name, description, price, discount_price, image, featured, variants, variant_groups)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `,
     );
     const insertTag = db.prepare("INSERT OR IGNORE INTO tags(name) VALUES (?)");
     const getTagId = db.prepare("SELECT id FROM tags WHERE name = ?");
@@ -158,16 +181,24 @@ function initializeDatabase(db: InstanceType<typeof Database>) {
 
     const transaction = db.transaction(() => {
       for (const item of productsSeed) {
+        const variantGroups = normalizeVariantGroups(undefined, []);
         const result = insertProduct.run(
           item.name,
           item.description,
           Number(item.price),
+          null,
           item.image,
           item.featured ? 1 : 0,
+          JSON.stringify([]),
+          JSON.stringify(variantGroups),
         );
         db.prepare(
           "UPDATE products SET sold_count = ?, created_at = datetime('now', ?) WHERE id = ?",
-        ).run(Math.floor(Math.random() * 40) + 4, `-${Number(result.lastInsertRowid) * 2} days`, Number(result.lastInsertRowid));
+        ).run(
+          Math.floor(Math.random() * 40) + 4,
+          `-${Number(result.lastInsertRowid) * 2} days`,
+          Number(result.lastInsertRowid),
+        );
         const tagName = (item.category || "general").trim().toLowerCase();
         insertTag.run(tagName);
         const tag = getTagId.get(tagName) as { id: number } | undefined;
@@ -203,6 +234,18 @@ function migrateDatabase(db: InstanceType<typeof Database>) {
     db.exec("ALTER TABLE products ADD COLUMN variants TEXT NOT NULL DEFAULT '[]'");
   }
 
+  if (!hasColumn(db, "products", "variant_groups")) {
+    db.exec("ALTER TABLE products ADD COLUMN variant_groups TEXT NOT NULL DEFAULT '[]'");
+  }
+
+  if (!hasColumn(db, "products", "discount_price")) {
+    db.exec("ALTER TABLE products ADD COLUMN discount_price INTEGER");
+  }
+
+  if (!hasColumn(db, "orders", "user_id")) {
+    db.exec("ALTER TABLE orders ADD COLUMN user_id INTEGER");
+  }
+
   db.exec(`
     DROP TABLE IF EXISTS password_recovery_codes;
 
@@ -212,6 +255,25 @@ function migrateDatabase(db: InstanceType<typeof Database>) {
       expires_at TEXT NOT NULL
     );
   `);
+
+  const productRows = db.prepare("SELECT id, variants, variant_groups FROM products").all() as Array<{
+    id: number;
+    variants: string | null;
+    variant_groups: string | null;
+  }>;
+
+  const updateGroups = db.prepare(
+    "UPDATE products SET variants = ?, variant_groups = ? WHERE id = ?",
+  );
+
+  const migrationTransaction = db.transaction(() => {
+    for (const row of productRows) {
+      const groups = parseVariantGroups(row.variant_groups, row.variants);
+      updateGroups.run(JSON.stringify(flattenVariantGroups(groups)), JSON.stringify(groups), row.id);
+    }
+  });
+
+  migrationTransaction();
 
   db.exec(`
     UPDATE users
@@ -263,28 +325,57 @@ function getTagsForProduct(productId: number) {
   return rows.map((row) => row.name);
 }
 
-function parseVariants(raw: string | null): string[] {
-  if (!raw) return [];
+function parseLegacyVariants(raw: string | null): string[] {
+  if (!raw) {
+    return [];
+  }
+
   try {
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed.filter((v: unknown) => typeof v === "string" && v.trim()) : [];
+    return Array.isArray(parsed)
+      ? parsed.filter((value: unknown) => typeof value === "string" && value.trim())
+      : [];
   } catch {
     return [];
   }
 }
 
+function parseVariantGroups(
+  rawGroups: string | null,
+  rawLegacyVariants: string | null,
+): ProductVariantGroup[] {
+  const legacyVariants = parseLegacyVariants(rawLegacyVariants);
+
+  if (rawGroups) {
+    try {
+      const parsed = JSON.parse(rawGroups);
+      if (Array.isArray(parsed)) {
+        return normalizeVariantGroups(parsed as ProductVariantGroup[], legacyVariants);
+      }
+    } catch {
+      return normalizeVariantGroups(undefined, legacyVariants);
+    }
+  }
+
+  return normalizeVariantGroups(undefined, legacyVariants);
+}
+
 function mapProduct(row: ProductRow): Product {
+  const variantGroups = parseVariantGroups(row.variant_groups, row.variants);
+
   return {
     id: row.id,
     name: row.name,
     description: row.description,
     price: row.price,
+    discountPrice: row.discount_price ?? null,
     image: row.image,
     featured: Boolean(row.featured),
     soldCount: row.sold_count,
     createdAt: row.created_at,
     tags: getTagsForProduct(row.id),
-    variants: parseVariants(row.variants),
+    variants: flattenVariantGroups(variantGroups),
+    variantGroups,
   };
 }
 
@@ -452,13 +543,33 @@ function syncProductTags(productId: number, tags: string[]) {
   }
 }
 
+function serializeVariantGroups(groups?: ProductVariantGroup[]) {
+  const normalizedGroups = normalizeVariantGroups(groups, []);
+  return {
+    variantsJson: JSON.stringify(flattenVariantGroups(normalizedGroups)),
+    variantGroupsJson: JSON.stringify(normalizedGroups),
+  };
+}
+
 export function createProduct(input: ProductInput) {
-  const variantsJson = JSON.stringify(input.variants || []);
+  const { variantsJson, variantGroupsJson } = serializeVariantGroups(input.variantGroups);
   const result = db
     .prepare(
-      "INSERT INTO products(name, description, price, image, featured, variants) VALUES (?, ?, ?, ?, ?, ?)",
+      `
+      INSERT INTO products(name, description, price, discount_price, image, featured, variants, variant_groups)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `,
     )
-    .run(input.name, input.description, input.price, input.image, input.featured ? 1 : 0, variantsJson);
+    .run(
+      input.name,
+      input.description,
+      input.price,
+      input.discountPrice,
+      input.image,
+      input.featured ? 1 : 0,
+      variantsJson,
+      variantGroupsJson,
+    );
 
   const productId = Number(result.lastInsertRowid);
   syncProductTags(productId, input.tags);
@@ -468,14 +579,24 @@ export function createProduct(input: ProductInput) {
 }
 
 export function updateProduct(productId: number, input: ProductInput) {
-  const variantsJson = JSON.stringify(input.variants || []);
+  const { variantsJson, variantGroupsJson } = serializeVariantGroups(input.variantGroups);
   db.prepare(
     `
     UPDATE products
-    SET name = ?, description = ?, price = ?, image = ?, featured = ?, variants = ?
+    SET name = ?, description = ?, price = ?, discount_price = ?, image = ?, featured = ?, variants = ?, variant_groups = ?
     WHERE id = ?
     `,
-  ).run(input.name, input.description, input.price, input.image, input.featured ? 1 : 0, variantsJson, productId);
+  ).run(
+    input.name,
+    input.description,
+    input.price,
+    input.discountPrice,
+    input.image,
+    input.featured ? 1 : 0,
+    variantsJson,
+    variantGroupsJson,
+    productId,
+  );
 
   syncProductTags(productId, input.tags);
 
@@ -492,11 +613,9 @@ export function findProduct(productId: number) {
   return row ? mapProduct(row) : null;
 }
 
-/* ─── ORDERS ─── */
-
 function mapOrderItems(orderId: number): OrderItem[] {
   const rows = db
-    .prepare("SELECT * FROM order_items WHERE order_id = ?")
+    .prepare("SELECT * FROM order_items WHERE order_id = ? ORDER BY id")
     .all(orderId) as OrderItemRow[];
 
   return rows.map((row) => ({
@@ -513,6 +632,7 @@ function mapOrderItems(orderId: number): OrderItem[] {
 function mapOrder(row: OrderRow): Order {
   return {
     id: row.id,
+    userId: row.user_id,
     customerName: row.customer_name,
     customerPhone: row.customer_phone,
     notes: row.notes,
@@ -523,22 +643,41 @@ function mapOrder(row: OrderRow): Order {
   };
 }
 
-export function createOrder(input: OrderInput & { total: number }) {
-  const result = db
-    .prepare(
-      "INSERT INTO orders(customer_name, customer_phone, notes, status, total) VALUES (?, ?, ?, 'pending', ?)",
-    )
-    .run(input.customerName, input.customerPhone, input.notes, input.total);
-
-  const orderId = Number(result.lastInsertRowid);
+function replaceOrderItems(orderId: number, items: OrderInput["items"]) {
+  db.prepare("DELETE FROM order_items WHERE order_id = ?").run(orderId);
 
   const insertItem = db.prepare(
-    "INSERT INTO order_items(order_id, product_id, product_name, variant, quantity, unit_price, image) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    `
+    INSERT INTO order_items(order_id, product_id, product_name, variant, quantity, unit_price, image)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+    `,
   );
 
-  for (const item of input.items) {
-    insertItem.run(orderId, item.productId, item.productName, item.variant || "", item.quantity, item.unitPrice, item.image || "");
+  for (const item of items) {
+    insertItem.run(
+      orderId,
+      item.productId || 0,
+      item.productName,
+      item.variant || "",
+      item.quantity,
+      item.unitPrice,
+      item.image || "",
+    );
   }
+}
+
+export function createOrder(input: OrderInput & { total: number; userId?: number | null }) {
+  const result = db
+    .prepare(
+      `
+      INSERT INTO orders(user_id, customer_name, customer_phone, notes, status, total)
+      VALUES (?, ?, ?, ?, 'pending', ?)
+      `,
+    )
+    .run(input.userId ?? null, input.customerName, input.customerPhone, input.notes, input.total);
+
+  const orderId = Number(result.lastInsertRowid);
+  replaceOrderItems(orderId, input.items);
 
   const row = db.prepare("SELECT * FROM orders WHERE id = ?").get(orderId) as OrderRow;
   return mapOrder(row);
@@ -551,6 +690,13 @@ export function listOrders() {
   return rows.map(mapOrder);
 }
 
+export function listOrdersByUser(userId: number) {
+  const rows = db
+    .prepare("SELECT * FROM orders WHERE user_id = ? ORDER BY created_at DESC")
+    .all(userId) as OrderRow[];
+  return rows.map(mapOrder);
+}
+
 export function findOrder(orderId: number) {
   const row = db.prepare("SELECT * FROM orders WHERE id = ?").get(orderId) as OrderRow | undefined;
   return row ? mapOrder(row) : null;
@@ -560,4 +706,27 @@ export function updateOrderStatus(orderId: number, status: OrderStatus) {
   db.prepare("UPDATE orders SET status = ? WHERE id = ?").run(status, orderId);
   const row = db.prepare("SELECT * FROM orders WHERE id = ?").get(orderId) as OrderRow | undefined;
   return row ? mapOrder(row) : null;
+}
+
+export function updateOrder(orderId: number, input: OrderUpdateInput) {
+  const transaction = db.transaction(() => {
+    db.prepare(
+      `
+      UPDATE orders
+      SET customer_name = ?, customer_phone = ?, notes = ?, status = ?, total = ?
+      WHERE id = ?
+      `,
+    ).run(input.customerName, input.customerPhone, input.notes, input.status, calculateOrderTotal(input.items), orderId);
+
+    replaceOrderItems(orderId, input.items);
+  });
+
+  transaction();
+
+  const row = db.prepare("SELECT * FROM orders WHERE id = ?").get(orderId) as OrderRow | undefined;
+  return row ? mapOrder(row) : null;
+}
+
+function calculateOrderTotal(items: OrderInput["items"]) {
+  return items.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
 }

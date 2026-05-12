@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 
 import { useCart } from "@/components/cart-context";
 import { User } from "@/lib/types";
@@ -11,16 +12,23 @@ interface HeaderShellProps {
   onLoginClick?: () => void;
   onLogoutClick?: () => void;
   onCartClick?: () => void;
-  hideHero?: boolean;
 }
 
-export function HeaderShell({ user, onLoginClick, onLogoutClick, onCartClick, hideHero }: HeaderShellProps) {
+export function HeaderShell({ user, onLoginClick, onLogoutClick, onCartClick }: HeaderShellProps) {
   const { totalItems } = useCart();
+  const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
+
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [pathname]);
+
+  function getNavLinkClass(target: string) {
+    return `nav-link ${pathname === target ? "active" : ""}`;
+  }
 
   return (
     <header className="header-container">
-      {/* Navigation Bar */}
       <nav className="navbar">
         <div className="navbar-content">
           <Link href="/" className="navbar-logo">
@@ -41,7 +49,7 @@ export function HeaderShell({ user, onLoginClick, onLogoutClick, onCartClick, hi
 
           <div className={`navbar-center ${mobileOpen ? "mobile-open" : ""}`}>
             <div className="navbar-menu">
-              <Link href="/catalogo" className="nav-link">
+              <Link href="/catalogo" className={getNavLinkClass("/catalogo")}>
                 Catálogo
               </Link>
               <a href="/#sobre-nosotros" className="nav-link">
@@ -53,8 +61,13 @@ export function HeaderShell({ user, onLoginClick, onLogoutClick, onCartClick, hi
             </div>
 
             <div className="navbar-actions">
+              {user && (
+                <Link href="/pedidos" className={`nav-btn nav-btn-ghost ${pathname === "/pedidos" ? "nav-btn-active" : ""}`}>
+                  Mis pedidos
+                </Link>
+              )}
               {user?.role === "admin" && (
-                <Link href="/admin" className="nav-btn nav-btn-ghost">
+                <Link href="/admin" className={`nav-btn nav-btn-ghost ${pathname === "/admin" ? "nav-btn-active" : ""}`}>
                   Admin
                 </Link>
               )}
@@ -83,20 +96,6 @@ export function HeaderShell({ user, onLoginClick, onLogoutClick, onCartClick, hi
           </div>
         </div>
       </nav>
-
-      {/* Compact Hero */}
-      {!hideHero && (
-        <div className="hero-surface">
-          <div className="hero-copy">
-            <p className="hero-kicker">Bienvenido a Che Tiendita</p>
-            <h1 className="hero-title">Encontrá productos únicos, hechos con dedicación.</h1>
-            <Link href="/catalogo" className="cta-button">
-              Ver catálogo completo
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
-            </Link>
-          </div>
-        </div>
-      )}
     </header>
   );
 }

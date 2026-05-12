@@ -17,11 +17,12 @@ function formatCurrency(value: number) {
   }).format(value);
 }
 
-const WHATSAPP_NUMBER = "5491112345678";
+const WHATSAPP_NUMBER = "5493515523846";
 
 export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
   const { items, totalPrice, clearCart } = useCart();
   const [step, setStep] = useState<"form" | "success">("form");
+  const [createdOrderId, setCreatedOrderId] = useState<number | null>(null);
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
   const [notes, setNotes] = useState("");
@@ -37,6 +38,7 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
       setCustomerPhone("");
       setNotes("");
       setMessage("");
+      setCreatedOrderId(null);
     }
     onClose();
   }
@@ -80,7 +82,9 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
           return;
         }
 
+        const data = (await response.json().catch(() => null)) as { order?: { id: number } } | null;
         clearCart();
+        setCreatedOrderId(data?.order?.id ?? null);
         setStep("success");
       } catch {
         setMessage("Error de conexión. Intentá de nuevo.");
@@ -105,6 +109,9 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
             <div className="checkout-header">
               <p className="section-overline">Checkout</p>
               <h2>Finalizar compra</h2>
+              <p className="checkout-helper-text">
+                Completá tus datos para registrar el pedido. La coordinación de pago y entrega sigue por WhatsApp.
+              </p>
             </div>
 
             <div className="checkout-summary">
@@ -173,6 +180,7 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
               <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
             </div>
             <h2>¡Pedido confirmado!</h2>
+            {createdOrderId ? <p className="checkout-order-reference">Referencia: pedido #{createdOrderId}</p> : null}
             <p>Tu pedido fue recibido. Para coordinar el pago y la entrega, comunicate por WhatsApp:</p>
             <a
               className="whatsapp-btn"

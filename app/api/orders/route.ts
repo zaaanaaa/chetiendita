@@ -7,6 +7,7 @@ import { OrderInput } from "@/lib/types";
 import { validateOrderInput } from "@/lib/validation";
 
 export async function POST(request: Request) {
+  const user = await getCurrentUser();
   const body = (await request.json().catch(() => null)) as OrderInput | null;
   if (!body) {
     return jsonError("missing_fields", 400);
@@ -18,6 +19,7 @@ export async function POST(request: Request) {
   }
 
   const order = createOrder({
+    userId: user?.id ?? null,
     customerName: validation.order.customerName,
     customerPhone: validation.order.customerPhone,
     notes: validation.order.notes,

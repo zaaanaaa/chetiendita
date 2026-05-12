@@ -16,27 +16,36 @@ export interface Tag {
   name: string;
 }
 
+export interface ProductVariantGroup {
+  name: string;
+  options: string[];
+}
+
 export interface Product {
   id: number;
   name: string;
   description: string;
   price: number;
+  discountPrice: number | null;
   image: string;
   featured: boolean;
   soldCount: number;
   createdAt: string;
   tags: string[];
   variants: string[];
+  variantGroups: ProductVariantGroup[];
 }
 
 export interface ProductInput {
   name: string;
   description: string;
   price: number;
+  discountPrice: number | null;
   image: string;
   featured: boolean;
   tags: string[];
   variants?: string[];
+  variantGroups?: ProductVariantGroup[];
 }
 
 export type OrderStatus = "pending" | "accepted" | "modified" | "rejected";
@@ -53,6 +62,7 @@ export interface OrderItem {
 
 export interface Order {
   id: number;
+  userId: number | null;
   customerName: string;
   customerPhone: string;
   notes: string;
@@ -75,6 +85,14 @@ export interface OrderInput {
   customerName: string;
   customerPhone: string;
   notes: string;
+  items: OrderItemInput[];
+}
+
+export interface OrderUpdateInput {
+  customerName: string;
+  customerPhone: string;
+  notes: string;
+  status: OrderStatus;
   items: OrderItemInput[];
 }
 

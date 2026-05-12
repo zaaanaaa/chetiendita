@@ -17,7 +17,7 @@ function formatCurrency(value: number) {
 }
 
 export function CartDrawer({ open, onClose, onCheckout }: CartDrawerProps) {
-  const { items, totalItems, totalPrice, removeItem, updateQuantity } = useCart();
+  const { items, totalItems, totalPrice, removeItem, updateQuantity, clearCart } = useCart();
 
   return (
     <>
@@ -26,14 +26,24 @@ export function CartDrawer({ open, onClose, onCheckout }: CartDrawerProps) {
       )}
       <aside className={`cart-drawer ${open ? "open" : ""}`} aria-label="Carrito de compras">
         <div className="drawer-header">
-          <div className="drawer-title-row">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg>
-            <h2>Mi Carrito</h2>
-            <span className="drawer-count">{totalItems}</span>
+          <div>
+            <div className="drawer-title-row">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg>
+              <h2>Mi carrito</h2>
+              <span className="drawer-count">{totalItems}</span>
+            </div>
+            <p className="drawer-subtitle">Revisá cantidades antes de confirmar tu pedido.</p>
           </div>
-          <button className="modal-close-btn" type="button" onClick={onClose} aria-label="Cerrar carrito">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-          </button>
+          <div className="drawer-header-actions">
+            {items.length > 0 ? (
+              <button className="text-button" type="button" onClick={clearCart}>
+                Vaciar
+              </button>
+            ) : null}
+            <button className="modal-close-btn" type="button" onClick={onClose} aria-label="Cerrar carrito">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+          </div>
         </div>
 
         {items.length === 0 ? (
@@ -41,6 +51,9 @@ export function CartDrawer({ open, onClose, onCheckout }: CartDrawerProps) {
             <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" opacity="0.3"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg>
             <p>Tu carrito está vacío</p>
             <span>Explorá el catálogo y agregá productos</span>
+            <button className="secondary-button" type="button" onClick={onClose}>
+              Seguir mirando
+            </button>
           </div>
         ) : (
           <>
@@ -90,6 +103,9 @@ export function CartDrawer({ open, onClose, onCheckout }: CartDrawerProps) {
             </div>
 
             <div className="drawer-footer">
+              <div className="drawer-trust-note">
+                No cobramos online todavía: confirmás el pedido acá y coordinás el pago después.
+              </div>
               <div className="drawer-total">
                 <span>Total</span>
                 <strong>{formatCurrency(totalPrice)}</strong>
