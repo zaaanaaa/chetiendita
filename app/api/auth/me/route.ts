@@ -10,5 +10,14 @@ export async function GET() {
     return jsonError("unauthorized", 401);
   }
 
-  return NextResponse.json({ user: { id: user.id, username: user.username, role: user.role } });
+  return NextResponse.json({
+    user: {
+      id: user.id,
+      username: user.username,
+      name: user.name,
+      email: user.email,
+      phone: user.phone,
+      role: user.role,
+    },
+  });
 }

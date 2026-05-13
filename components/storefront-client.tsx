@@ -49,6 +49,102 @@ function getProductSnippet(description: string) {
   return `${clean.slice(0, 105).trimEnd()}...`;
 }
 
+function ProductCard({
+  product,
+  onOpen,
+  onTagFilter,
+}: {
+  product: Product;
+  onOpen: () => void;
+  onTagFilter: (tag: string) => void;
+}) {
+  const [imageIndex, setImageIndex] = useState(0);
+
+  useEffect(() => {
+    setImageIndex(0);
+  }, [product.id]);
+
+  useEffect(() => {
+    if (product.images.length < 2) {
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      setImageIndex((current) => (current + 1) % product.images.length);
+    }, 4000);
+
+    return () => window.clearInterval(timer);
+  }, [product.images]);
+
+  const effectivePrice = getEffectivePrice(product);
+  const discountPercentage = getDiscountPercentage(product);
+
+  return (
+    <article
+      className="product-card"
+      onClick={onOpen}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onOpen();
+        }
+      }}
+    >
+      <div className="product-img-wrap">
+        <div className="product-img-frame">
+          <img
+            src={product.images[imageIndex] || product.image}
+            alt={product.name}
+            className="product-img-tag"
+          />
+        </div>
+        {product.featured ? <span className="featured-dot">Destacado</span> : null}
+        {discountPercentage ? <span className="discount-dot">-{discountPercentage}%</span> : null}
+      </div>
+
+      <div className="product-body product-body-stretch">
+        <div className="product-card-copy">
+          <div className="product-card-heading">
+            <h3 className="product-name">{product.name}</h3>
+            <div className="product-price-stack">
+              {product.discountPrice ? (
+                <span className="product-price-original">{formatCurrency(product.price)}</span>
+              ) : null}
+              <p className="product-price">{formatCurrency(effectivePrice)}</p>
+            </div>
+          </div>
+          <p className="product-snippet">{getProductSnippet(product.description)}</p>
+        </div>
+
+        <div className="product-card-meta">
+          <div className="tag-row">
+            {product.tags.slice(0, 3).map((tag) => (
+              <button
+                key={tag}
+                type="button"
+                className="tag-chip tag-chip-action"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onTagFilter(tag);
+                }}
+              >
+                #{tag}
+              </button>
+            ))}
+          </div>
+          <span className="product-detail-hint">
+            {product.variantGroups.length > 0
+              ? `${product.variantGroups.length} categoría(s)`
+              : "Ver detalle"}
+          </span>
+        </div>
+      </div>
+    </article>
+  );
+}
+
 export function StorefrontClient({ initialProducts, tags, user, mode }: StorefrontClientProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -60,7 +156,7 @@ export function StorefrontClient({ initialProducts, tags, user, mode }: Storefro
   const [cartOpen, setCartOpen] = useState(false);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
-  const [isPending, startTransition] = useTransition();
+  const [, startTransition] = useTransition();
 
   useEffect(() => {
     setQuery(searchParams.get("q") || "");
@@ -80,8 +176,7 @@ export function StorefrontClient({ initialProducts, tags, user, mode }: Storefro
     });
   }, [initialProducts, query, selectedTag]);
 
-  const displayProducts =
-    mode === "home" ? filteredProducts.slice(0, LANDING_LIMIT) : filteredProducts;
+  const displayProducts = mode === "home" ? filteredProducts.slice(0, LANDING_LIMIT) : filteredProducts;
   const hasMore = mode === "home" && filteredProducts.length > LANDING_LIMIT;
   const activeFilters = Number(query.trim().length > 0) + Number(Boolean(selectedTag));
   const highlightedTags = tags.slice(0, 8);
@@ -191,19 +286,11 @@ export function StorefrontClient({ initialProducts, tags, user, mode }: Storefro
           </section>
         )}
 
-        <section className="trust-strip" aria-label="Beneficios de compra">
-          <div className="trust-pill">Selección curada</div>
-          <div className="trust-pill">Carrito persistente</div>
-          <div className="trust-pill">Pedido confirmado por WhatsApp</div>
-        </section>
-
         <section className="catalog-section catalog-section-elevated" id="catalogo">
           <div className="catalog-toolbar storefront-toolbar">
             <div>
               <p className="section-overline">{mode === "home" ? "Catálogo" : "Explorar"}</p>
-              <h2>
-                {mode === "home" ? "Productos para mirar con ganas" : "Encontrá el producto indicado"}
-              </h2>
+              <h2>{mode === "home" ? "Productos para mirar con ganas" : "Encontrá el producto indicado"}</h2>
               <p className="catalog-intro">
                 {mode === "home"
                   ? "La portada muestra una selección corta y útil, pero las etiquetas ya te llevan al catálogo filtrado completo."
@@ -213,21 +300,7 @@ export function StorefrontClient({ initialProducts, tags, user, mode }: Storefro
 
             <div className="filters-panel">
               <label className="filter-input-wrap">
-                <svg
-                  className="filter-icon"
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
-                >
-                  <circle cx="11" cy="11" r="8" />
-                  <line x1="21" y1="21" x2="16.65" y2="16.65" />
-                </svg>
+                <svg className="filter-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
                 <input
                   type="search"
                   value={query}
@@ -288,7 +361,6 @@ export function StorefrontClient({ initialProducts, tags, user, mode }: Storefro
                   Limpiar filtros
                 </button>
               ) : null}
-              {isPending ? <span className="catalog-status-pill">Actualizando...</span> : null}
             </div>
           </div>
 
@@ -304,77 +376,14 @@ export function StorefrontClient({ initialProducts, tags, user, mode }: Storefro
           ) : (
             <>
               <div className="catalog-grid storefront-grid">
-                {displayProducts.map((product) => {
-                  const effectivePrice = getEffectivePrice(product);
-                  const discountPercentage = getDiscountPercentage(product);
-
-                  return (
-                    <article
-                      key={product.id}
-                      className="product-card"
-                      onClick={() => setSelectedProduct(product)}
-                      role="button"
-                      tabIndex={0}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter" || event.key === " ") {
-                          event.preventDefault();
-                          setSelectedProduct(product);
-                        }
-                      }}
-                    >
-                      <div className="product-img-wrap">
-                        <div
-                          className="product-img"
-                          style={{ backgroundImage: `url(${product.image})` }}
-                        />
-                        {product.featured ? <span className="featured-dot">Destacado</span> : null}
-                        {discountPercentage ? (
-                          <span className="discount-dot">-{discountPercentage}%</span>
-                        ) : null}
-                      </div>
-
-                      <div className="product-body product-body-stretch">
-                        <div className="product-card-copy">
-                          <div className="product-card-heading">
-                            <h3 className="product-name">{product.name}</h3>
-                            <div className="product-price-stack">
-                              {product.discountPrice ? (
-                                <span className="product-price-original">
-                                  {formatCurrency(product.price)}
-                                </span>
-                              ) : null}
-                              <p className="product-price">{formatCurrency(effectivePrice)}</p>
-                            </div>
-                          </div>
-                          <p className="product-snippet">{getProductSnippet(product.description)}</p>
-                        </div>
-
-                        <div className="product-card-meta">
-                          <div className="tag-row">
-                            {product.tags.slice(0, 3).map((tag) => (
-                              <button
-                                key={tag}
-                                type="button"
-                                className="tag-chip tag-chip-action"
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  handleTagFilter(tag);
-                                }}
-                              >
-                                #{tag}
-                              </button>
-                            ))}
-                          </div>
-                          <span className="product-detail-hint">
-                            {product.variantGroups.length > 0
-                              ? `${product.variantGroups.length} categoría(s)`
-                              : "Ver detalle"}
-                          </span>
-                        </div>
-                      </div>
-                    </article>
-                  );
-                })}
+                {displayProducts.map((product) => (
+                  <ProductCard
+                    key={product.id}
+                    product={product}
+                    onOpen={() => setSelectedProduct(product)}
+                    onTagFilter={handleTagFilter}
+                  />
+                ))}
               </div>
 
               {hasMore ? (
@@ -451,9 +460,7 @@ export function StorefrontClient({ initialProducts, tags, user, mode }: Storefro
       <LoginPanel open={loginOpen} onClose={() => setLoginOpen(false)} />
       <CartDrawer open={cartOpen} onClose={() => setCartOpen(false)} onCheckout={() => setCheckoutOpen(true)} />
       <CheckoutModal open={checkoutOpen} onClose={() => setCheckoutOpen(false)} />
-      {selectedProduct ? (
-        <ProductModal product={selectedProduct} onClose={() => setSelectedProduct(null)} />
-      ) : null}
+      {selectedProduct ? <ProductModal product={selectedProduct} onClose={() => setSelectedProduct(null)} /> : null}
     </>
   );
 }

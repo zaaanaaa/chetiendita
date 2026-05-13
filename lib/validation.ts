@@ -1,4 +1,12 @@
-import { OrderInput, OrderStatus, OrderUpdateInput, ProductInput, ProductVariantGroup } from "@/lib/types";
+import {
+  OrderInput,
+  OrderStatus,
+  OrderUpdateInput,
+  ProductInput,
+  ProductVariantGroup,
+  UserInput,
+  UserRole,
+} from "@/lib/types";
 
 export function normalizeTagName(value: string) {
   return value.trim().toLowerCase();
@@ -138,8 +146,27 @@ function isValidImageValue(value: string) {
   }
 }
 
+function normalizeImages(images: string[], fallbackImage: string) {
+  const normalized = Array.from(
+    new Set(
+      images
+        .map((image) => image.trim())
+        .filter(Boolean)
+        .filter(isValidImageValue),
+    ),
+  );
+
+  if (normalized.length > 0) {
+    return normalized;
+  }
+
+  const trimmedFallback = fallbackImage.trim();
+  return isValidImageValue(trimmedFallback) ? [trimmedFallback] : [];
+}
+
 export function validateProductInput(input: ProductInput) {
   const variantGroups = normalizeVariantGroups(input.variantGroups, input.variants);
+  const images = normalizeImages(input.images || [], input.image || "");
   const payload: ProductInput = {
     name: input.name.trim(),
     description: input.description.trim(),
@@ -148,14 +175,15 @@ export function validateProductInput(input: ProductInput) {
       input.discountPrice === null || input.discountPrice === undefined || input.discountPrice === 0
         ? null
         : Number(input.discountPrice),
-    image: input.image.trim(),
+    image: images[0] || "",
+    images,
     featured: Boolean(input.featured),
     tags: Array.from(new Set(input.tags.map(normalizeTagName).filter(Boolean))),
     variants: flattenVariantGroups(variantGroups),
     variantGroups,
   };
 
-  if (!payload.name || !payload.description || !payload.image) {
+  if (!payload.name || !payload.description || payload.images.length === 0) {
     return { ok: false as const, error: "missing_fields" };
   }
 
@@ -172,21 +200,11 @@ export function validateProductInput(input: ProductInput) {
     return { ok: false as const, error: "invalid_discount_price" };
   }
 
-  if (!isValidImageValue(payload.image)) {
-    return { ok: false as const, error: "invalid_image_url" };
-  }
-
   return { ok: true as const, product: payload };
 }
 
-function validateOrderPayload(
-  input: OrderInput | OrderUpdateInput,
-  options: { requireProductId: boolean; requireStatus: boolean },
-) {
-  const customerName = (input.customerName || "").trim();
-  const customerPhone = (input.customerPhone || "").trim();
-  const notes = (input.notes || "").trim();
-  const items = (input.items || []).map((item) => ({
+function validateOrderItems(items: OrderInput["items"], requireProductId: boolean) {
+  const normalizedItems = (items || []).map((item) => ({
     productId: Number(item.productId || 0),
     productName: (item.productName || "").trim(),
     variant: (item.variant || "").trim(),
@@ -195,16 +213,12 @@ function validateOrderPayload(
     image: (item.image || "").trim(),
   }));
 
-  if (!customerName || customerName.length < 2) {
-    return { ok: false as const, error: "missing_customer_name" };
-  }
-
-  if (items.length === 0) {
+  if (normalizedItems.length === 0) {
     return { ok: false as const, error: "empty_cart" };
   }
 
-  for (const item of items) {
-    if (options.requireProductId && item.productId < 1) {
+  for (const item of normalizedItems) {
+    if (requireProductId && item.productId < 1) {
       return { ok: false as const, error: "invalid_item" };
     }
 
@@ -213,43 +227,93 @@ function validateOrderPayload(
     }
   }
 
-  let status: OrderStatus | undefined;
+  return { ok: true as const, items: normalizedItems };
+}
 
-  if ("status" in input) {
-    const rawStatus = input.status;
-    if (
-      rawStatus === "pending" ||
-      rawStatus === "accepted" ||
-      rawStatus === "modified" ||
-      rawStatus === "rejected"
-    ) {
-      status = rawStatus;
-    } else if (options.requireStatus) {
-      return { ok: false as const, error: "invalid_status" };
-    }
-  } else if (options.requireStatus) {
+export function validateOrderInput(input: OrderInput) {
+  const itemsValidation = validateOrderItems(input.items || [], true);
+  if (!itemsValidation.ok) {
+    return itemsValidation;
+  }
+
+  const total = itemsValidation.items.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
+
+  return {
+    ok: true as const,
+    order: {
+      customerName: (input.customerName || "").trim(),
+      customerPhone: (input.customerPhone || "").trim(),
+      notes: (input.notes || "").trim(),
+      items: itemsValidation.items,
+      total,
+    },
+  };
+}
+
+export function validateOrderUpdateInput(input: OrderUpdateInput) {
+  const itemsValidation = validateOrderItems(input.items || [], false);
+  if (!itemsValidation.ok) {
+    return itemsValidation;
+  }
+
+  const customerName = (input.customerName || "").trim();
+  if (!customerName) {
+    return { ok: false as const, error: "missing_customer_name" };
+  }
+
+  if (!["pending", "accepted", "modified", "rejected"].includes(input.status)) {
     return { ok: false as const, error: "invalid_status" };
   }
 
-  const total = items.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
+  const total = itemsValidation.items.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
 
   return {
     ok: true as const,
     order: {
       customerName,
-      customerPhone,
-      notes,
-      items,
+      customerPhone: (input.customerPhone || "").trim(),
+      notes: (input.notes || "").trim(),
+      items: itemsValidation.items,
       total,
-      status,
+      status: input.status as OrderStatus,
     },
   };
 }
 
-export function validateOrderInput(input: OrderInput) {
-  return validateOrderPayload(input, { requireProductId: true, requireStatus: false });
-}
+export function validateAdminUserInput(input: UserInput, options?: { requirePassword?: boolean }) {
+  const cleanUsername = input.username.trim();
+  const cleanName = input.name.trim();
+  const cleanEmail = input.email.trim().toLowerCase();
+  const cleanPhone = input.phone.trim();
+  const cleanPassword = (input.password || "").trim();
+  const role: UserRole = input.role === "admin" ? "admin" : "user";
 
-export function validateOrderUpdateInput(input: OrderUpdateInput) {
-  return validateOrderPayload(input, { requireProductId: false, requireStatus: true });
+  if (cleanUsername.length < 4 || cleanName.length < 2) {
+    return { ok: false as const, error: "invalid_input" };
+  }
+
+  const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailPattern.test(cleanEmail)) {
+    return { ok: false as const, error: "invalid_email" };
+  }
+
+  if (options?.requirePassword && cleanPassword.length < 4) {
+    return { ok: false as const, error: "invalid_input" };
+  }
+
+  if (cleanPassword && cleanPassword.length < 4) {
+    return { ok: false as const, error: "invalid_input" };
+  }
+
+  return {
+    ok: true as const,
+    user: {
+      username: cleanUsername,
+      name: cleanName,
+      email: cleanEmail,
+      phone: cleanPhone,
+      role,
+      password: cleanPassword,
+    },
+  };
 }

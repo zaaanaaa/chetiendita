@@ -19,7 +19,11 @@ export async function POST(request: Request) {
   }
 
   try {
-    const user = createUser(validation.username, validation.email, validation.password);
+    const user = createUser(validation.username, validation.email, validation.password, {
+      name: validation.username,
+      phone: "",
+      role: "user",
+    });
     return NextResponse.json({ user }, { status: 201 });
   } catch {
     return jsonError("username_or_email_exists", 400);

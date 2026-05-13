@@ -14,6 +14,8 @@ import {
   ProductVariantGroup,
   Tag,
   User,
+  UserInput,
+  UserWithOrders,
 } from "@/lib/types";
 
 interface AdminClientProps {
@@ -23,19 +25,24 @@ interface AdminClientProps {
 }
 
 type InventorySort = "featured" | "bestselling" | "newest";
-type AdminTab = "inventory" | "orders";
+type AdminTab = "inventory" | "orders" | "users";
+type ImageMode = "url" | "upload";
 
 const ERROR_MESSAGES: Record<string, string> = {
   name_required: "La etiqueta no puede estar vacia.",
   tag_exists: "Esa etiqueta ya existe.",
-  missing_fields: "Completa todos los campos del producto.",
+  missing_fields: "Completa todos los campos necesarios.",
   invalid_price: "El precio debe ser mayor a cero.",
   invalid_discount_price: "El precio con descuento debe ser menor al precio normal.",
-  invalid_image_url: "La imagen debe ser una URL valida o un archivo subido.",
+  invalid_image_url: "La imagen debe ser una URL válida o un archivo subido.",
   missing_customer_name: "El pedido necesita un nombre de cliente.",
   empty_cart: "El pedido tiene que tener al menos un item.",
   invalid_item: "Revisa los items del pedido.",
-  invalid_status: "Elegí un estado válido para el pedido.",
+  invalid_status: "No se pudo guardar el estado del pedido.",
+  invalid_email: "El email no es válido.",
+  invalid_input: "Revisá los datos cargados.",
+  username_or_email_exists: "Ese usuario o email ya existe.",
+  forbidden: "No se puede realizar esta acción.",
   default: "No se pudo guardar. Intenta otra vez.",
 };
 
@@ -45,10 +52,20 @@ const EMPTY_FORM: ProductInput = {
   price: 0,
   discountPrice: null,
   image: "",
+  images: [],
   featured: false,
   tags: [],
   variants: [],
   variantGroups: [],
+};
+
+const EMPTY_USER_FORM: UserInput = {
+  username: "",
+  name: "",
+  email: "",
+  phone: "",
+  role: "user",
+  password: "",
 };
 
 const STATUS_LABELS: Record<OrderStatus, string> = {
@@ -126,28 +143,36 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
   const [products, setProducts] = useState(initialProducts);
   const [tags, setTags] = useState(initialTags);
   const [orders, setOrders] = useState<Order[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
   const [activeTab, setActiveTab] = useState<AdminTab>("inventory");
   const [editingId, setEditingId] = useState<number | null>(null);
   const [productForm, setProductForm] = useState<ProductInput>(EMPTY_FORM);
   const [variantOptionDrafts, setVariantOptionDrafts] = useState<string[]>([]);
-  const [imageUploadName, setImageUploadName] = useState("");
+  const [imageMode, setImageMode] = useState<ImageMode>("url");
   const [tagName, setTagName] = useState("");
   const [tagMessage, setTagMessage] = useState("");
   const [productMessage, setProductMessage] = useState("");
   const [orderMessage, setOrderMessage] = useState("");
+  const [userMessage, setUserMessage] = useState("");
   const [inventorySearch, setInventorySearch] = useState("");
   const [inventoryTag, setInventoryTag] = useState("");
   const [inventorySort, setInventorySort] = useState<InventorySort>("featured");
+  const [userSearch, setUserSearch] = useState("");
   const [editorOpen, setEditorOpen] = useState(false);
   const [tagModalOpen, setTagModalOpen] = useState(false);
   const [tagPickerOpen, setTagPickerOpen] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [orderDraft, setOrderDraft] = useState<OrderUpdateInput | null>(null);
+  const [selectedUserDetail, setSelectedUserDetail] = useState<UserWithOrders | null>(null);
+  const [userEditorOpen, setUserEditorOpen] = useState(false);
+  const [userEditingId, setUserEditingId] = useState<number | null>(null);
+  const [userForm, setUserForm] = useState<UserInput>(EMPTY_USER_FORM);
+  const [urlImageDraft, setUrlImageDraft] = useState("");
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [isPending, startTransition] = useTransition();
 
   useEffect(() => {
-    const anyModalOpen = editorOpen || tagModalOpen || tagPickerOpen || !!selectedOrder;
+    const anyModalOpen = editorOpen || tagModalOpen || tagPickerOpen || !!selectedOrder || userEditorOpen;
     if (anyModalOpen) {
       document.body.classList.add("modal-open");
     } else {
@@ -156,22 +181,16 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
     return () => {
       document.body.classList.remove("modal-open");
     };
-  }, [editorOpen, tagModalOpen, tagPickerOpen, selectedOrder]);
+  }, [editorOpen, tagModalOpen, tagPickerOpen, selectedOrder, userEditorOpen]);
 
   useEffect(() => {
     if (activeTab === "orders") {
       loadOrders();
     }
+    if (activeTab === "users") {
+      loadUsers(userSearch);
+    }
   }, [activeTab]);
-
-  const stats = useMemo(
-    () => [
-      { label: "Productos", value: String(products.length).padStart(2, "0") },
-      { label: "Etiquetas", value: String(tags.length).padStart(2, "0") },
-      { label: "Pedidos", value: String(orders.length).padStart(2, "0") },
-    ],
-    [products, tags, orders],
-  );
 
   const inventoryProducts = useMemo(() => {
     const q = inventorySearch.trim().toLowerCase();
@@ -200,7 +219,7 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
     () => orders.filter((order) => order.status === "pending"),
     [orders],
   );
-  const resolvedOrders = useMemo(
+  const readyOrders = useMemo(
     () => orders.filter((order) => order.status !== "pending"),
     [orders],
   );
@@ -231,13 +250,36 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
     }
   }
 
+  async function loadUsers(search = "") {
+    try {
+      const response = await fetch(`/api/users?search=${encodeURIComponent(search)}`, {
+        cache: "no-store",
+      });
+      const data = (await response.json()) as { users: User[] };
+      setUsers(data.users || []);
+    } catch {
+      setUsers([]);
+    }
+  }
+
+  async function loadUserDetail(userId: number) {
+    const response = await fetch(`/api/users/${userId}`, { cache: "no-store" });
+    if (!response.ok) {
+      setSelectedUserDetail(null);
+      return;
+    }
+    const data = (await response.json()) as { user: UserWithOrders };
+    setSelectedUserDetail(data.user);
+  }
+
   function resetProductForm() {
     setEditingId(null);
     setProductForm(EMPTY_FORM);
     setVariantOptionDrafts([]);
-    setImageUploadName("");
     setProductMessage("");
     setTagMessage("");
+    setUrlImageDraft("");
+    setImageMode("url");
     setEditorOpen(false);
     setTagPickerOpen(false);
   }
@@ -246,9 +288,10 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
     setEditingId(null);
     setProductForm(EMPTY_FORM);
     setVariantOptionDrafts([]);
-    setImageUploadName("");
     setProductMessage("");
     setTagMessage("");
+    setUrlImageDraft("");
+    setImageMode("url");
     setEditorOpen(true);
     setTagPickerOpen(false);
   }
@@ -266,7 +309,6 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
     setEditingId(product.id);
     setProductMessage("");
     setTagMessage("");
-    setImageUploadName("");
     setEditorOpen(true);
     setProductForm({
       name: product.name,
@@ -274,12 +316,14 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
       price: product.price,
       discountPrice: product.discountPrice,
       image: product.image,
+      images: product.images,
       featured: product.featured,
       tags: product.tags,
       variants: product.variants || [],
       variantGroups: product.variantGroups || [],
     });
     setVariantOptionDrafts((product.variantGroups || []).map(() => ""));
+    setImageMode(product.images.some((image) => image.startsWith("data:image/")) ? "upload" : "url");
   }
 
   function addVariantGroup() {
@@ -347,19 +391,69 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
     }));
   }
 
-  function handleImageUpload(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    if (!file) {
+  function switchImageMode(nextMode: ImageMode) {
+    setImageMode(nextMode);
+    setProductForm((current) => ({
+      ...current,
+      images: [],
+      image: "",
+    }));
+    setUrlImageDraft("");
+  }
+
+  function addImageUrl() {
+    const draft = urlImageDraft.trim();
+    if (!draft) {
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = typeof reader.result === "string" ? reader.result : "";
-      setProductForm((current) => ({ ...current, image: result }));
-      setImageUploadName(file.name);
-    };
-    reader.readAsDataURL(file);
+    setProductForm((current) => {
+      const images = Array.from(new Set([...(current.images || []), draft]));
+      return {
+        ...current,
+        images,
+        image: images[0] || "",
+      };
+    });
+    setUrlImageDraft("");
+  }
+
+  function removeImage(index: number) {
+    setProductForm((current) => {
+      const images = (current.images || []).filter((_, currentIndex) => currentIndex !== index);
+      return {
+        ...current,
+        images,
+        image: images[0] || "",
+      };
+    });
+  }
+
+  function handleImageUpload(event: ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(event.target.files || []);
+    if (files.length === 0) {
+      return;
+    }
+
+    Promise.all(
+      files.map(
+        (file) =>
+          new Promise<string>((resolve) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : "");
+            reader.readAsDataURL(file);
+          }),
+      ),
+    ).then((encodedImages) => {
+      setProductForm((current) => {
+        const images = Array.from(new Set([...(current.images || []), ...encodedImages.filter(Boolean)]));
+        return {
+          ...current,
+          images,
+          image: images[0] || "",
+        };
+      });
+    });
   }
 
   function submitTag() {
@@ -445,17 +539,21 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
 
       return {
         ...current,
-        items: current.items.map((item, currentIndex) =>
-          currentIndex === index
-            ? {
-                ...item,
-                [field]:
-                  field === "productId" || field === "quantity" || field === "unitPrice"
-                    ? Number(value)
-                    : value,
-              }
-            : item,
-        ),
+        items: current.items.map((item, currentIndex) => {
+          if (currentIndex !== index) {
+            return item;
+          }
+
+          const nextItem = {
+            ...item,
+            [field]:
+              field === "productId" || field === "quantity" || field === "unitPrice"
+                ? Number(value)
+                : value,
+          };
+
+          return nextItem;
+        }),
       };
     });
   }
@@ -502,6 +600,75 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
     });
   }
 
+  function openCreateUser() {
+    setUserEditingId(null);
+    setUserForm(EMPTY_USER_FORM);
+    setUserMessage("");
+    setUserEditorOpen(true);
+  }
+
+  function openEditUser(targetUser: User) {
+    setUserEditingId(targetUser.id);
+    setUserForm({
+      username: targetUser.username,
+      name: targetUser.name,
+      email: targetUser.email,
+      phone: targetUser.phone,
+      role: targetUser.role,
+      password: "",
+    });
+    setUserMessage("");
+    setUserEditorOpen(true);
+    loadUserDetail(targetUser.id);
+  }
+
+  function closeUserEditor() {
+    setUserEditorOpen(false);
+    setUserEditingId(null);
+    setUserForm(EMPTY_USER_FORM);
+    setUserMessage("");
+  }
+
+  function saveUser(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setUserMessage("");
+
+    startTransition(async () => {
+      const endpoint = userEditingId ? `/api/users/${userEditingId}` : "/api/users";
+      const method = userEditingId ? "PUT" : "POST";
+      const response = await fetch(endpoint, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(userForm),
+      });
+      const data = (await response.json().catch(() => ({}))) as { error?: string; user?: User };
+      if (!response.ok) {
+        setUserMessage(ERROR_MESSAGES[data.error || "default"]);
+        return;
+      }
+      await loadUsers(userSearch);
+      if (data.user) {
+        await loadUserDetail(data.user.id);
+      }
+      closeUserEditor();
+    });
+  }
+
+  function deleteUser(userId: number) {
+    startTransition(async () => {
+      const response = await fetch(`/api/users/${userId}`, { method: "DELETE" });
+      if (!response.ok) {
+        setUserMessage("No se pudo eliminar el usuario.");
+        return;
+      }
+      await loadUsers(userSearch);
+      if (selectedUserDetail?.id === userId) {
+        setSelectedUserDetail(null);
+      }
+      closeUserEditor();
+    });
+  }
+
   function logout() {
     startTransition(async () => {
       await fetch("/api/auth/logout", { method: "POST" });
@@ -513,49 +680,32 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
   return (
     <>
       <nav className="navbar">
-        <div className="navbar-content">
-          <Link href="/" className="navbar-logo">
-            <span className="logo-mark">CT</span>
-            <span className="logo-text">Che Tiendita</span>
-          </Link>
-
-          <button
-            className="mobile-menu-btn"
-            type="button"
-            onClick={() => setMobileNavOpen((current) => !current)}
-            aria-label="Menú"
-          >
-            <span className={`hamburger ${mobileNavOpen ? "open" : ""}`}>
-              <span /><span /><span />
-            </span>
-          </button>
-
-          <div className={`navbar-center ${mobileNavOpen ? "mobile-open" : ""}`}>
-            <div className="navbar-menu">
-              <button type="button" className={`nav-link ${activeTab === "inventory" ? "active" : ""}`} onClick={() => { setActiveTab("inventory"); setMobileNavOpen(false); }}>Inventario</button>
-              <button type="button" className={`nav-link ${activeTab === "orders" ? "active" : ""}`} onClick={() => { setActiveTab("orders"); setMobileNavOpen(false); }}>Pedidos</button>
-            </div>
-            <div className="navbar-actions">
-              <Link href="/" className="nav-btn nav-btn-ghost" onClick={() => setMobileNavOpen(false)}>Ver tienda</Link>
-              <Link href="/pedidos" className="nav-btn nav-btn-ghost" onClick={() => setMobileNavOpen(false)}>Mis pedidos</Link>
-              <span className="nav-user-badge">{user.username}</span>
-              <button className="nav-btn nav-btn-ghost" type="button" onClick={logout}>Salir</button>
+        <div className="navbar-content navbar-content-sidebar">
+          <div className="navbar-main">
+            <Link href="/" className="navbar-logo">
+              <span className="logo-mark">CT</span>
+              <span className="logo-text">Che Tiendita</span>
+            </Link>
+            <div className="navbar-menu navbar-menu-inline">
+              <button type="button" className={`nav-link ${activeTab === "inventory" ? "active" : ""}`} onClick={() => setActiveTab("inventory")}>Inventario</button>
+              <button type="button" className={`nav-link ${activeTab === "orders" ? "active" : ""}`} onClick={() => setActiveTab("orders")}>Pedidos</button>
+              <button type="button" className={`nav-link ${activeTab === "users" ? "active" : ""}`} onClick={() => setActiveTab("users")}>Users</button>
             </div>
           </div>
+
+          <aside className="header-sidebar">
+            <span className="header-sidebar-user">{user.name}</span>
+            <div className="header-sidebar-actions">
+              <Link href="/" className="sidebar-link">Ver tienda</Link>
+              <Link href="/pedidos" className="sidebar-link">Mis pedidos</Link>
+              <button className="sidebar-link" type="button" onClick={logout}>Salir</button>
+            </div>
+          </aside>
         </div>
       </nav>
 
       <main className="admin-shell">
-        <section className="stats-grid">
-          {stats.map((stat) => (
-            <article key={stat.label} className="stat-card">
-              <span>{stat.label}</span>
-              <strong>{stat.value}</strong>
-            </article>
-          ))}
-        </section>
-
-        {activeTab === "inventory" && (
+        {activeTab === "inventory" ? (
           <section className="admin-panel">
             <div className="panel-heading">
               <div>
@@ -590,7 +740,9 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
                 return (
                   <article key={product.id} className="inventory-card">
                     <div className="inventory-preview">
-                      <div className="inventory-media" style={{ backgroundImage: `url(${product.image})` }} />
+                      <div className="inventory-media-frame">
+                        <img src={product.image} alt={product.name} className="inventory-media-tag" />
+                      </div>
                       <div>
                         <div className="inventory-title-row">
                           <h3>{product.name}</h3>
@@ -605,7 +757,7 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
                         <div className="tag-row">
                           {product.tags.map((tag) => <span key={tag} className="tag-chip">#{tag}</span>)}
                         </div>
-                        {product.variantGroups.length > 0 && (
+                        {product.variantGroups.length > 0 ? (
                           <div className="admin-variant-group-list">
                             {product.variantGroups.map((group) => (
                               <span key={group.name} className="variant-chip-sm">
@@ -613,7 +765,7 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
                               </span>
                             ))}
                           </div>
-                        )}
+                        ) : null}
                       </div>
                     </div>
                     <div className="inventory-actions">
@@ -629,9 +781,9 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
               })}
             </div>
           </section>
-        )}
+        ) : null}
 
-        {activeTab === "orders" && (
+        {activeTab === "orders" ? (
           <section className="admin-panel">
             <div className="panel-heading">
               <div>
@@ -641,151 +793,285 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
               <button className="secondary-button" type="button" onClick={loadOrders}>Actualizar</button>
             </div>
 
-            <div className="order-history-grid">
-              <section className="order-board">
-                <div className="order-board-header">
-                  <p className="section-overline">Pendientes</p>
-                  <h3>{pendingOrders.length}</h3>
+            <section className="order-board order-board-stacked">
+              <div className="order-board-header">
+                <p className="section-overline">Pendientes</p>
+                <h3>{pendingOrders.length}</h3>
+              </div>
+              {pendingOrders.length === 0 ? (
+                <div className="empty-state">
+                  <h3>No hay pedidos pendientes</h3>
+                  <p>Cuando entre un pedido nuevo, lo vas a ver acá.</p>
                 </div>
-                {pendingOrders.length === 0 ? (
-                  <div className="empty-state">
-                    <h3>No hay pedidos pendientes</h3>
-                    <p>Cuando entre un pedido nuevo, lo vas a ver acá.</p>
-                  </div>
-                ) : (
-                  <div className="orders-list">
-                    {pendingOrders.map((order) => (
-                      <article key={order.id} className="order-card" onClick={() => openOrderEditor(order)} role="button" tabIndex={0} onKeyDown={(e) => e.key === "Enter" && openOrderEditor(order)}>
-                        <div className="order-card-main">
-                          <div className="order-card-header">
-                            <h3>Pedido #{order.id}</h3>
-                            <span className={`order-badge ${STATUS_COLORS[order.status]}`}>{STATUS_LABELS[order.status]}</span>
-                          </div>
-                          <p className="order-customer">{order.customerName}{order.customerPhone ? ` · ${order.customerPhone}` : ""}</p>
-                          <p className="order-date">{new Date(order.createdAt).toLocaleDateString("es-AR", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}</p>
+              ) : (
+                <div className="orders-list">
+                  {pendingOrders.map((order) => (
+                    <article key={order.id} className="order-card" onClick={() => openOrderEditor(order)} role="button" tabIndex={0} onKeyDown={(e) => e.key === "Enter" && openOrderEditor(order)}>
+                      <div className="order-card-main">
+                        <div className="order-card-header">
+                          <h3>Pedido #{order.id}</h3>
+                          <span className={`order-badge ${STATUS_COLORS[order.status]}`}>{STATUS_LABELS[order.status]}</span>
                         </div>
-                        <div className="order-card-total">
-                          <span>{order.items.length} item(s)</span>
-                          <strong>{formatCurrency(order.total)}</strong>
-                        </div>
-                      </article>
-                    ))}
-                  </div>
-                )}
-              </section>
+                        <p className="order-customer">{order.customerName}{order.customerPhone ? ` · ${order.customerPhone}` : ""}</p>
+                        <p className="order-date">{new Date(order.createdAt).toLocaleDateString("es-AR", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}</p>
+                      </div>
+                      <div className="order-card-total">
+                        <span>{order.items.length} item(s)</span>
+                        <strong>{formatCurrency(order.total)}</strong>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </section>
 
-              <section className="order-board">
-                <div className="order-board-header">
-                  <p className="section-overline">Resueltos</p>
-                  <h3>{resolvedOrders.length}</h3>
+            <section className="order-board order-board-stacked order-board-ready">
+              <div className="order-board-header">
+                <p className="section-overline">Listos</p>
+                <h3>{readyOrders.length}</h3>
+              </div>
+              {readyOrders.length === 0 ? (
+                <div className="empty-state">
+                  <h3>No hay pedidos listos</h3>
+                  <p>Los aceptados y rechazados quedan agrupados acá.</p>
                 </div>
-                {resolvedOrders.length === 0 ? (
-                  <div className="empty-state">
-                    <h3>No hay pedidos resueltos</h3>
-                    <p>Los aceptados, modificados y rechazados aparecen en este módulo.</p>
-                  </div>
+              ) : (
+                <div className="orders-list">
+                  {readyOrders.map((order) => (
+                    <article key={order.id} className="order-card" onClick={() => openOrderEditor(order)} role="button" tabIndex={0} onKeyDown={(e) => e.key === "Enter" && openOrderEditor(order)}>
+                      <div className="order-card-main">
+                        <div className="order-card-header">
+                          <h3>Pedido #{order.id}</h3>
+                          <span className={`order-badge ${STATUS_COLORS[order.status]}`}>{STATUS_LABELS[order.status]}</span>
+                        </div>
+                        <p className="order-customer">{order.customerName}{order.customerPhone ? ` · ${order.customerPhone}` : ""}</p>
+                        <p className="order-date">{new Date(order.createdAt).toLocaleDateString("es-AR", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}</p>
+                      </div>
+                      <div className="order-card-total">
+                        <span>{order.items.length} item(s)</span>
+                        <strong>{formatCurrency(order.total)}</strong>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </section>
+          </section>
+        ) : null}
+
+        {activeTab === "users" ? (
+          <section className="admin-panel">
+            <div className="panel-heading">
+              <div>
+                <p className="section-overline">Users</p>
+                <h2>Gestión de usuarios</h2>
+              </div>
+              <button className="primary-button" type="button" onClick={openCreateUser}>Nuevo user</button>
+            </div>
+
+            <div className="inventory-toolbar">
+              <input
+                type="search"
+                value={userSearch}
+                onChange={(e) => setUserSearch(e.target.value)}
+                placeholder="Buscar por nombre, teléfono o id de pedido..."
+              />
+              <button className="secondary-button" type="button" onClick={() => loadUsers(userSearch)}>Buscar</button>
+            </div>
+
+            <div className="users-panel-grid">
+              <div className="users-list-panel">
+                <div className="orders-list">
+                  {users.map((listedUser) => (
+                    <article
+                      key={listedUser.id}
+                      className={`order-card ${selectedUserDetail?.id === listedUser.id ? "order-card-selected" : ""}`}
+                      onClick={() => loadUserDetail(listedUser.id)}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(e) => e.key === "Enter" && loadUserDetail(listedUser.id)}
+                    >
+                      <div className="order-card-main">
+                        <div className="order-card-header">
+                          <h3>{listedUser.name}</h3>
+                          <span className={`order-badge ${listedUser.role === "admin" ? "badge-modified" : "badge-pending"}`}>
+                            {listedUser.role}
+                          </span>
+                        </div>
+                        <p className="order-customer">@{listedUser.username}</p>
+                        <p className="order-date">{listedUser.phone || listedUser.email}</p>
+                      </div>
+                      <div className="order-card-total">
+                        <button className="secondary-button" type="button" onClick={(event) => { event.stopPropagation(); openEditUser(listedUser); }}>
+                          Editar
+                        </button>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              </div>
+
+              <div className="user-detail-panel">
+                {selectedUserDetail ? (
+                  <>
+                    <div className="panel-heading">
+                      <div>
+                        <p className="section-overline">Detalle</p>
+                        <h2>{selectedUserDetail.name}</h2>
+                      </div>
+                      <button className="secondary-button" type="button" onClick={() => openEditUser(selectedUserDetail)}>Editar user</button>
+                    </div>
+                    <div className="user-detail-grid">
+                      <p><strong>Username:</strong> @{selectedUserDetail.username}</p>
+                      <p><strong>Email:</strong> {selectedUserDetail.email}</p>
+                      <p><strong>Teléfono:</strong> {selectedUserDetail.phone || "Sin cargar"}</p>
+                      <p><strong>Rol:</strong> {selectedUserDetail.role}</p>
+                    </div>
+
+                    <div className="user-detail-orders">
+                      <div className="panel-heading">
+                        <div>
+                          <p className="section-overline">Pedidos</p>
+                          <h2>{selectedUserDetail.orders.length} pedido(s)</h2>
+                        </div>
+                      </div>
+                      {selectedUserDetail.orders.length === 0 ? (
+                        <div className="empty-state">
+                          <h3>Este user todavía no hizo pedidos</h3>
+                          <p>Cuando compre, vas a ver el historial acá.</p>
+                        </div>
+                      ) : (
+                        <div className="orders-list">
+                          {selectedUserDetail.orders.map((order) => (
+                            <article key={order.id} className="order-card order-card-static">
+                              <div className="order-card-main">
+                                <div className="order-card-header">
+                                  <h3>Pedido #{order.id}</h3>
+                                  <span className={`order-badge ${STATUS_COLORS[order.status]}`}>{STATUS_LABELS[order.status]}</span>
+                                </div>
+                                <p className="order-date">{new Date(order.createdAt).toLocaleDateString("es-AR", { day: "numeric", month: "short", year: "numeric" })}</p>
+                              </div>
+                              <div className="order-card-total">
+                                <strong>{formatCurrency(order.total)}</strong>
+                              </div>
+                            </article>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </>
                 ) : (
-                  <div className="orders-list">
-                    {resolvedOrders.map((order) => (
-                      <article key={order.id} className="order-card" onClick={() => openOrderEditor(order)} role="button" tabIndex={0} onKeyDown={(e) => e.key === "Enter" && openOrderEditor(order)}>
-                        <div className="order-card-main">
-                          <div className="order-card-header">
-                            <h3>Pedido #{order.id}</h3>
-                            <span className={`order-badge ${STATUS_COLORS[order.status]}`}>{STATUS_LABELS[order.status]}</span>
-                          </div>
-                          <p className="order-customer">{order.customerName}{order.customerPhone ? ` · ${order.customerPhone}` : ""}</p>
-                          <p className="order-date">{new Date(order.createdAt).toLocaleDateString("es-AR", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}</p>
-                        </div>
-                        <div className="order-card-total">
-                          <span>{order.items.length} item(s)</span>
-                          <strong>{formatCurrency(order.total)}</strong>
-                        </div>
-                      </article>
-                    ))}
+                  <div className="empty-state">
+                    <h3>Elegí un user para ver su detalle</h3>
+                    <p>Podés buscar por nombre, teléfono, username o id de pedido.</p>
                   </div>
                 )}
-              </section>
+              </div>
             </div>
           </section>
-        )}
+        ) : null}
       </main>
 
-      {editorOpen && (
+      {editorOpen ? (
         <div className="modal-backdrop" role="presentation" onClick={resetProductForm}>
-          <div className="modal-card modal-card-editor" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-card modal-card-editor modal-card-editor-wide" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <div><p className="section-overline">Editor</p><h2>{editingId ? "Editar producto" : "Nuevo producto"}</h2></div>
               <button className="icon-button" type="button" onClick={resetProductForm} aria-label="Cerrar">×</button>
             </div>
 
-            <form className="stack-form editor-form-modal" onSubmit={submitProduct}>
-              <div className="editor-grid">
-                <input type="text" value={productForm.name} onChange={(e) => setProductForm({ ...productForm, name: e.target.value })} placeholder="Nombre" required />
-                <div className="currency-input-wrap">
-                  <span>$</span>
-                  <input type="number" min={1} value={productForm.price || ""} onChange={(e) => setProductForm({ ...productForm, price: Number(e.target.value) })} placeholder="Precio normal" required />
+            <form className="product-editor-compact" onSubmit={submitProduct}>
+              <section className="editor-section">
+                <div className="editor-grid editor-grid-compact">
+                  <input type="text" value={productForm.name} onChange={(e) => setProductForm({ ...productForm, name: e.target.value })} placeholder="Nombre" required />
+                  <div className="currency-input-wrap compact-price-field">
+                    <span>$</span>
+                    <input type="number" min={1} value={productForm.price || ""} onChange={(e) => setProductForm({ ...productForm, price: Number(e.target.value) })} placeholder="Precio normal" required />
+                  </div>
+                  <div className="currency-input-wrap compact-price-field">
+                    <span>$</span>
+                    <input type="number" min={0} value={productForm.discountPrice || ""} onChange={(e) => setProductForm({ ...productForm, discountPrice: e.target.value ? Number(e.target.value) : null })} placeholder="Precio con descuento" />
+                  </div>
                 </div>
-              </div>
 
-              <div className="editor-grid">
-                <div className="currency-input-wrap">
-                  <span>$</span>
-                  <input type="number" min={0} value={productForm.discountPrice || ""} onChange={(e) => setProductForm({ ...productForm, discountPrice: e.target.value ? Number(e.target.value) : null })} placeholder="Precio con descuento" />
+                <textarea rows={3} value={productForm.description} onChange={(e) => setProductForm({ ...productForm, description: e.target.value })} placeholder="Descripción" required />
+                <label className="checkbox-row"><input type="checkbox" checked={productForm.featured} onChange={(e) => setProductForm({ ...productForm, featured: e.target.checked })} />Marcar como destacado</label>
+              </section>
+
+              <section className="editor-section">
+                <div className="inline-heading">
+                  <div><p className="section-overline">Imágenes</p><h3 className="subsection-title">Elegí una sola fuente por vez</h3></div>
+                  <div className="image-mode-switch">
+                    <button className={`secondary-button ${imageMode === "url" ? "active-mode" : ""}`} type="button" onClick={() => switchImageMode("url")}>URL</button>
+                    <button className={`secondary-button ${imageMode === "upload" ? "active-mode" : ""}`} type="button" onClick={() => switchImageMode("upload")}>Computadora</button>
+                  </div>
                 </div>
-                <label className="file-upload-field">
-                  <span>Subir imagen desde tu ordenador</span>
-                  <input type="file" accept="image/*" onChange={handleImageUpload} />
-                  <strong>{imageUploadName || "Seleccionar archivo"}</strong>
-                </label>
-              </div>
 
-              <input type="url" value={productForm.image} onChange={(e) => { setProductForm({ ...productForm, image: e.target.value }); setImageUploadName(""); }} placeholder="URL de imagen o data URL" required />
-
-              {productForm.image ? (
-                <div className="editor-image-preview">
-                  <div className="editor-image-preview-media" style={{ backgroundImage: `url(${productForm.image})` }} />
-                </div>
-              ) : null}
-
-              <textarea rows={4} value={productForm.description} onChange={(e) => setProductForm({ ...productForm, description: e.target.value })} placeholder="Descripcion" required />
-              <label className="checkbox-row"><input type="checkbox" checked={productForm.featured} onChange={(e) => setProductForm({ ...productForm, featured: e.target.checked })} />Marcar como destacado</label>
-
-              <div className="inline-heading">
-                <div><p className="section-overline">Variantes</p><h3 className="subsection-title">Creá categorías como color, talle o tela</h3></div>
-                <button className="secondary-button" type="button" onClick={addVariantGroup}>Agregar categoría</button>
-              </div>
-
-              <div className="variant-group-editor-list">
-                {(productForm.variantGroups || []).map((group, groupIndex) => (
-                  <div key={`${group.name}-${groupIndex}`} className="variant-group-editor">
-                    <div className="variant-group-editor-head">
-                      <input type="text" value={group.name} onChange={(e) => updateVariantGroupName(groupIndex, e.target.value)} placeholder="Nombre de la categoría. Ej: Color" />
-                      <button className="danger-button" type="button" onClick={() => removeVariantGroup(groupIndex)}>Eliminar</button>
-                    </div>
+                {imageMode === "url" ? (
+                  <div className="variant-group-editor">
                     <div className="variant-editor">
-                      <input type="text" value={variantOptionDrafts[groupIndex] || ""} onChange={(e) => updateVariantOptionDraft(groupIndex, e.target.value)} placeholder="Ej: Negro" onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addVariantOption(groupIndex); } }} />
-                      <button className="secondary-button" type="button" onClick={() => addVariantOption(groupIndex)}>Agregar opción</button>
-                    </div>
-                    <div className="tag-row">
-                      {group.options.map((option) => (
-                        <button key={option} type="button" className="tag-chip tag-chip-action" onClick={() => removeVariantOption(groupIndex, option)}>
-                          {option} ×
-                        </button>
-                      ))}
+                      <input type="url" value={urlImageDraft} onChange={(e) => setUrlImageDraft(e.target.value)} placeholder="Pegá una URL de imagen" onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addImageUrl(); } }} />
+                      <button className="secondary-button" type="button" onClick={addImageUrl}>Agregar imagen</button>
                     </div>
                   </div>
-                ))}
-              </div>
+                ) : (
+                  <label className="file-upload-field file-upload-field-multi">
+                    <span>Subir imágenes desde tu ordenador</span>
+                    <input type="file" accept="image/*" multiple onChange={handleImageUpload} />
+                    <strong>Seleccionar archivos</strong>
+                  </label>
+                )}
 
-              <div className="inline-heading">
-                <div><p className="section-overline">Etiquetas</p><h3 className="subsection-title">Elegí etiquetas</h3></div>
-                <button className="secondary-button" type="button" onClick={() => setTagPickerOpen(true)}>Elegir etiquetas</button>
-              </div>
-              <div className="tag-selection-summary">
-                {productForm.tags.length > 0 ? (
-                  <div className="tag-row">{productForm.tags.map((tag) => <span key={tag} className="tag-chip">#{tag}</span>)}</div>
-                ) : (<p className="helper-text">No hay etiquetas seleccionadas.</p>)}
-              </div>
+                <div className="editor-gallery-grid">
+                  {(productForm.images || []).map((image, index) => (
+                    <div key={`${image}-${index}`} className="editor-gallery-card">
+                      <div className="editor-image-preview-media" style={{ backgroundImage: `url(${image})` }} />
+                      <button className="danger-button" type="button" onClick={() => removeImage(index)}>Eliminar</button>
+                    </div>
+                  ))}
+                </div>
+              </section>
+
+              <section className="editor-section">
+                <div className="inline-heading">
+                  <div><p className="section-overline">Variantes</p><h3 className="subsection-title">Color, talle, tela o el tipo que necesites</h3></div>
+                  <button className="secondary-button" type="button" onClick={addVariantGroup}>Agregar categoría</button>
+                </div>
+
+                <div className="variant-group-editor-list">
+                  {(productForm.variantGroups || []).map((group, groupIndex) => (
+                    <div key={`${group.name}-${groupIndex}`} className="variant-group-editor">
+                      <div className="variant-group-editor-head">
+                        <input type="text" value={group.name} onChange={(e) => updateVariantGroupName(groupIndex, e.target.value)} placeholder="Ej: Color" />
+                        <button className="danger-button" type="button" onClick={() => removeVariantGroup(groupIndex)}>Eliminar</button>
+                      </div>
+                      <div className="variant-editor">
+                        <input type="text" value={variantOptionDrafts[groupIndex] || ""} onChange={(e) => updateVariantOptionDraft(groupIndex, e.target.value)} placeholder="Ej: Negro" onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addVariantOption(groupIndex); } }} />
+                        <button className="secondary-button" type="button" onClick={() => addVariantOption(groupIndex)}>Agregar opción</button>
+                      </div>
+                      <div className="tag-row">
+                        {group.options.map((option) => (
+                          <button key={option} type="button" className="tag-chip tag-chip-action" onClick={() => removeVariantOption(groupIndex, option)}>
+                            {option} ×
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+
+              <section className="editor-section">
+                <div className="inline-heading">
+                  <div><p className="section-overline">Etiquetas</p><h3 className="subsection-title">Elegí etiquetas</h3></div>
+                  <button className="secondary-button" type="button" onClick={() => setTagPickerOpen(true)}>Elegir etiquetas</button>
+                </div>
+                <div className="tag-selection-summary">
+                  {productForm.tags.length > 0 ? (
+                    <div className="tag-row">{productForm.tags.map((tag) => <span key={tag} className="tag-chip">#{tag}</span>)}</div>
+                  ) : (<p className="helper-text">No hay etiquetas seleccionadas.</p>)}
+                </div>
+              </section>
 
               <div className="inline-actions">
                 <button className="primary-button" type="submit" disabled={isPending}>{editingId ? "Guardar cambios" : "Crear producto"}</button>
@@ -795,9 +1081,49 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
             <p className={`feedback ${tagMessage || productMessage ? "visible" : ""}`}>{productMessage || tagMessage}</p>
           </div>
         </div>
-      )}
+      ) : null}
 
-      {tagModalOpen && (
+      {userEditorOpen ? (
+        <div className="modal-backdrop" role="presentation" onClick={closeUserEditor}>
+          <div className="modal-card modal-card-wide" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div><p className="section-overline">Users</p><h2>{userEditingId ? "Editar user" : "Nuevo user"}</h2></div>
+              <button className="icon-button" type="button" onClick={closeUserEditor} aria-label="Cerrar">×</button>
+            </div>
+
+            <form className="stack-form" onSubmit={saveUser}>
+              <div className="editor-grid">
+                <input type="text" value={userForm.name} onChange={(e) => setUserForm({ ...userForm, name: e.target.value })} placeholder="Nombre y apellido" required />
+                <input type="text" value={userForm.username} onChange={(e) => setUserForm({ ...userForm, username: e.target.value })} placeholder="Username" required />
+              </div>
+              <div className="editor-grid">
+                <input type="email" value={userForm.email} onChange={(e) => setUserForm({ ...userForm, email: e.target.value })} placeholder="Email" required />
+                <input type="text" value={userForm.phone} onChange={(e) => setUserForm({ ...userForm, phone: e.target.value })} placeholder="Teléfono" />
+              </div>
+              <div className="editor-grid">
+                <select value={userForm.role} onChange={(e) => setUserForm({ ...userForm, role: e.target.value as User["role"] })}>
+                  <option value="user">user</option>
+                  <option value="admin">admin</option>
+                </select>
+                <input type="password" value={userForm.password || ""} onChange={(e) => setUserForm({ ...userForm, password: e.target.value })} placeholder={userEditingId ? "Nueva contraseña (opcional)" : "Contraseña"} />
+              </div>
+
+              <div className="inline-actions">
+                <button className="primary-button" type="submit" disabled={isPending}>{userEditingId ? "Guardar user" : "Crear user"}</button>
+                {userEditingId ? (
+                  <button className="danger-button" type="button" disabled={isPending || userEditingId === user.id} onClick={() => deleteUser(userEditingId)}>
+                    Eliminar user
+                  </button>
+                ) : null}
+                <button className="secondary-button" type="button" onClick={closeUserEditor}>Cancelar</button>
+              </div>
+            </form>
+            <p className={`feedback ${userMessage ? "visible" : ""}`}>{userMessage}</p>
+          </div>
+        </div>
+      ) : null}
+
+      {tagModalOpen ? (
         <div className="modal-backdrop modal-backdrop-front" role="presentation" onClick={() => { setTagModalOpen(false); setTagMessage(""); }}>
           <div className="modal-card modal-card-tag" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
@@ -814,9 +1140,9 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
             <p className={`feedback ${tagMessage ? "visible" : ""}`}>{tagMessage}</p>
           </div>
         </div>
-      )}
+      ) : null}
 
-      {tagPickerOpen && (
+      {tagPickerOpen ? (
         <div className="modal-backdrop" role="presentation" onClick={() => setTagPickerOpen(false)}>
           <div className="modal-card modal-card-tag-picker" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
@@ -841,74 +1167,64 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
             </div>
           </div>
         </div>
-      )}
+      ) : null}
 
-      {selectedOrder && orderDraft && (
+      {selectedOrder && orderDraft ? (
         <div className="modal-backdrop" role="presentation" onClick={closeOrderEditor}>
-          <div className="modal-card modal-card-order" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-card modal-card-order modal-card-order-wide" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <div><p className="section-overline">Pedido #{selectedOrder.id}</p><h2>Editar pedido</h2></div>
               <button className="icon-button" type="button" onClick={closeOrderEditor} aria-label="Cerrar">×</button>
             </div>
 
             <div className="order-edit-grid">
-              <input type="text" value={orderDraft.customerName} onChange={(e) => updateOrderField("customerName", e.target.value)} placeholder="Nombre del cliente" />
-              <input type="text" value={orderDraft.customerPhone} onChange={(e) => updateOrderField("customerPhone", e.target.value)} placeholder="Teléfono" />
+              <input type="text" value={orderDraft.customerName} onChange={(e) => updateOrderField("customerName", e.target.value)} placeholder="Nombre del cliente" disabled />
+              <input type="text" value={orderDraft.customerPhone} onChange={(e) => updateOrderField("customerPhone", e.target.value)} placeholder="Teléfono del cliente" />
             </div>
 
-            <textarea rows={3} value={orderDraft.notes} onChange={(e) => updateOrderField("notes", e.target.value)} placeholder="Notas del pedido" />
-
-            <div className="order-edit-status-row">
-              <label className="order-status-field">
-                <span>Estado</span>
-                <select value={orderDraft.status} onChange={(e) => updateOrderField("status", e.target.value as OrderStatus)}>
-                  <option value="pending">Pendiente</option>
-                  <option value="accepted">Aceptado</option>
-                  <option value="modified">Modificado</option>
-                  <option value="rejected">Rechazado</option>
-                </select>
-              </label>
-              <button className="secondary-button" type="button" onClick={addOrderItem}>Agregar item</button>
-            </div>
+            <textarea rows={2} value={orderDraft.notes} onChange={(e) => updateOrderField("notes", e.target.value)} placeholder="Notas del pedido" />
 
             <div className="order-edit-items">
-              {orderDraft.items.map((item, index) => (
-                <div key={`${index}-${item.productName}`} className="order-edit-item-card">
-                  <div className="order-edit-item-grid">
-                    <input type="text" value={item.productName} onChange={(e) => updateOrderItem(index, "productName", e.target.value)} placeholder="Producto" />
-                    <input type="text" value={item.variant} onChange={(e) => updateOrderItem(index, "variant", e.target.value)} placeholder="Variante. Ej: Color: Negro · Talle: M" />
-                  </div>
-                  <div className="order-edit-item-grid">
-                    <input type="number" min={0} value={item.productId || ""} onChange={(e) => updateOrderItem(index, "productId", e.target.value)} placeholder="ID del producto (opcional)" />
-                    <input type="url" value={item.image} onChange={(e) => updateOrderItem(index, "image", e.target.value)} placeholder="Imagen del item" />
-                  </div>
-                  <div className="order-edit-item-grid order-edit-item-grid-tight">
-                    <div className="currency-input-wrap">
-                      <span>$</span>
-                      <input type="number" min={0} value={item.unitPrice || ""} onChange={(e) => updateOrderItem(index, "unitPrice", e.target.value)} placeholder="Precio" />
+              {orderDraft.items.map((item, index) => {
+                const isExistingProduct = item.productId > 0;
+
+                return (
+                  <div key={`${index}-${item.productName}`} className="order-edit-item-card">
+                    <div className="order-edit-item-grid">
+                      <input type="text" value={item.productName} onChange={(e) => updateOrderItem(index, "productName", e.target.value)} placeholder="Producto" disabled={isExistingProduct} />
+                      <input type="text" value={item.variant} onChange={(e) => updateOrderItem(index, "variant", e.target.value)} placeholder="Tipo. Ej: Color: Negro · Talle: M" />
                     </div>
-                    <input type="number" min={1} value={item.quantity || 1} onChange={(e) => updateOrderItem(index, "quantity", e.target.value)} placeholder="Cantidad" />
-                    <button className="danger-button" type="button" onClick={() => removeOrderItem(index)}>Eliminar</button>
+                    <div className="order-edit-item-grid order-edit-item-grid-tight">
+                      <div className="currency-input-wrap compact-price-field">
+                        <span>$</span>
+                        <input type="number" min={0} value={item.unitPrice || ""} onChange={(e) => updateOrderItem(index, "unitPrice", e.target.value)} placeholder="Precio" />
+                      </div>
+                      <input type="number" min={1} value={item.quantity || 1} onChange={(e) => updateOrderItem(index, "quantity", e.target.value)} placeholder="Cantidad" />
+                      <button className="danger-button" type="button" onClick={() => removeOrderItem(index)}>Eliminar</button>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
 
-            <div className="order-detail-total">
-              <span>Total recalculado</span>
-              <strong>{formatCurrency(orderDraftTotal)}</strong>
+            <div className="order-edit-footer-row">
+              <button className="secondary-button" type="button" onClick={addOrderItem}>Agregar item</button>
+              <div className="order-detail-total">
+                <span>Total recalculado</span>
+                <strong>{formatCurrency(orderDraftTotal)}</strong>
+              </div>
             </div>
 
             <div className="order-actions">
-              <button className="primary-button" type="button" disabled={isPending} onClick={() => saveOrderChanges("accepted")}>Aceptar y guardar</button>
-              <button className="secondary-button" type="button" disabled={isPending} onClick={() => saveOrderChanges("modified")}>Guardar como modificado</button>
-              <button className="danger-button" type="button" disabled={isPending} onClick={() => saveOrderChanges("rejected")}>Rechazar</button>
-              <button className="secondary-button" type="button" disabled={isPending} onClick={() => saveOrderChanges()}>Guardar cambios</button>
+              <button className="primary-button" type="button" disabled={isPending} onClick={() => saveOrderChanges("accepted")}>Aceptar pedido</button>
+              <button className="danger-button" type="button" disabled={isPending} onClick={() => saveOrderChanges("rejected")}>Rechazar pedido</button>
+              <button className="secondary-button" type="button" disabled={isPending} onClick={() => saveOrderChanges("pending")}>Guardar cambios</button>
+              <button className="secondary-button" type="button" onClick={closeOrderEditor}>Cancelar</button>
             </div>
             <p className={`feedback ${orderMessage ? "visible" : ""}`}>{orderMessage}</p>
           </div>
         </div>
-      )}
+      ) : null}
     </>
   );
 }

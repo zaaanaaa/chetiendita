@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -17,39 +17,20 @@ interface HeaderShellProps {
 export function HeaderShell({ user, onLoginClick, onLogoutClick, onCartClick }: HeaderShellProps) {
   const { totalItems } = useCart();
   const pathname = usePathname();
-  const [mobileOpen, setMobileOpen] = useState(false);
-
-  useEffect(() => {
-    setMobileOpen(false);
-  }, [pathname]);
-
-  function getNavLinkClass(target: string) {
-    return `nav-link ${pathname === target ? "active" : ""}`;
-  }
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   return (
     <header className="header-container">
       <nav className="navbar">
-        <div className="navbar-content">
-          <Link href="/" className="navbar-logo">
-            <span className="logo-mark">CT</span>
-            <span className="logo-text">Che Tiendita</span>
-          </Link>
+        <div className="navbar-content navbar-content-sidebar">
+          <div className="navbar-main">
+            <Link href="/" className="navbar-logo">
+              <span className="logo-mark">CT</span>
+              <span className="logo-text">Che Tiendita</span>
+            </Link>
 
-          <button
-            className="mobile-menu-btn"
-            type="button"
-            onClick={() => setMobileOpen(!mobileOpen)}
-            aria-label="Menú"
-          >
-            <span className={`hamburger ${mobileOpen ? "open" : ""}`}>
-              <span /><span /><span />
-            </span>
-          </button>
-
-          <div className={`navbar-center ${mobileOpen ? "mobile-open" : ""}`}>
-            <div className="navbar-menu">
-              <Link href="/catalogo" className={getNavLinkClass("/catalogo")}>
+            <div className="navbar-menu navbar-menu-inline">
+              <Link href="/catalogo" className={`nav-link ${pathname === "/catalogo" ? "active" : ""}`}>
                 Catálogo
               </Link>
               <a href="/#sobre-nosotros" className="nav-link">
@@ -59,41 +40,52 @@ export function HeaderShell({ user, onLoginClick, onLogoutClick, onCartClick }: 
                 Contacto
               </a>
             </div>
+          </div>
 
-            <div className="navbar-actions">
-              {user && (
-                <Link href="/pedidos" className={`nav-btn nav-btn-ghost ${pathname === "/pedidos" ? "nav-btn-active" : ""}`}>
-                  Mis pedidos
-                </Link>
-              )}
-              {user?.role === "admin" && (
-                <Link href="/admin" className={`nav-btn nav-btn-ghost ${pathname === "/admin" ? "nav-btn-active" : ""}`}>
-                  Admin
-                </Link>
-              )}
+          <button 
+            className="sidebar-toggle" 
+            type="button" 
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+            aria-label="Menú"
+            aria-expanded={sidebarOpen}
+          >
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="3" y1="6" x2="21" y2="6"></line>
+              <line x1="3" y1="12" x2="21" y2="12"></line>
+              <line x1="3" y1="18" x2="21" y2="18"></line>
+            </svg>
+          </button>
+
+          <aside className={`header-sidebar ${sidebarOpen ? "open" : ""}`}>
+            {user ? <span className="header-sidebar-user">{user.name || user.username}</span> : null}
+
+            <div className="header-sidebar-actions">
               {user ? (
                 <>
-                  <span className="nav-user-badge">{user.username}</span>
-                  <button className="nav-btn nav-btn-ghost" type="button" onClick={onLogoutClick}>
+                  <Link href="/pedidos" className={`sidebar-link ${pathname === "/pedidos" ? "active" : ""}`} onClick={() => setSidebarOpen(false)}>
+                    Mis pedidos
+                  </Link>
+                  {user.role === "admin" ? (
+                    <Link href="/admin" className={`sidebar-link ${pathname === "/admin" ? "active" : ""}`} onClick={() => setSidebarOpen(false)}>
+                      Panel
+                    </Link>
+                  ) : null}
+                  <button className="sidebar-link" type="button" onClick={() => { setSidebarOpen(false); onLogoutClick?.(); }}>
                     Salir
                   </button>
                 </>
               ) : (
-                <button className="nav-btn nav-btn-outline" type="button" onClick={onLoginClick}>
+                <button className="sidebar-link sidebar-link-primary" type="button" onClick={() => { setSidebarOpen(false); onLoginClick?.(); }}>
                   Ingresar
                 </button>
               )}
-              <button
-                className="cart-icon-btn"
-                type="button"
-                onClick={onCartClick}
-                aria-label="Ver carrito"
-              >
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
-                {totalItems > 0 && <span className="cart-badge">{totalItems}</span>}
+
+              <button className="sidebar-cart" type="button" onClick={() => { setSidebarOpen(false); onCartClick?.(); }} aria-label="Ver carrito">
+                <span>Carrito</span>
+                {totalItems > 0 ? <strong>{totalItems}</strong> : <strong>0</strong>}
               </button>
             </div>
-          </div>
+          </aside>
         </div>
       </nav>
     </header>

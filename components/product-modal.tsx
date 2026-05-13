@@ -35,6 +35,7 @@ export function ProductModal({ product, onClose }: ProductModalProps) {
   const [quantity, setQuantity] = useState(1);
   const [added, setAdded] = useState(false);
   const [selectedOptions, setSelectedOptions] = useState<Record<string, string>>({});
+  const [selectedImageIndex, setSelectedImageIndex] = useState(0);
 
   const effectivePrice = getEffectivePrice(product);
   const discountPercentage = getDiscountPercentage(product);
@@ -47,6 +48,7 @@ export function ProductModal({ product, onClose }: ProductModalProps) {
     );
     setQuantity(1);
     setSelectedOptions(defaults);
+    setSelectedImageIndex(0);
     setAdded(false);
   }, [product]);
 
@@ -67,7 +69,7 @@ export function ProductModal({ product, onClose }: ProductModalProps) {
       productName: product.name,
       variant: variantLabel,
       unitPrice: effectivePrice,
-      image: product.image,
+      image: product.images[selectedImageIndex] || product.image,
       quantity,
     });
     setAdded(true);
@@ -89,21 +91,64 @@ export function ProductModal({ product, onClose }: ProductModalProps) {
 
         <div className="product-modal-layout">
           <div className="product-modal-image">
-            <div
-              className="product-modal-media"
-              style={{ backgroundImage: `url(${product.image})` }}
-            />
+            <div className="product-modal-media-frame">
+              <img
+                src={product.images[selectedImageIndex] || product.image}
+                alt={product.name}
+                className="product-modal-media-tag"
+              />
+            </div>
+
+            {product.images.length > 1 ? (
+              <>
+                <div className="product-gallery-controls">
+                  <button
+                    type="button"
+                    className="gallery-nav-btn"
+                    onClick={() =>
+                      setSelectedImageIndex((current) =>
+                        current === 0 ? product.images.length - 1 : current - 1,
+                      )
+                    }
+                  >
+                    ‹
+                  </button>
+                  <button
+                    type="button"
+                    className="gallery-nav-btn"
+                    onClick={() =>
+                      setSelectedImageIndex((current) => (current + 1) % product.images.length)
+                    }
+                  >
+                    ›
+                  </button>
+                </div>
+
+                <div className="product-gallery-strip">
+                  {product.images.map((image, index) => (
+                    <button
+                      key={`${image}-${index}`}
+                      type="button"
+                      className={`gallery-thumb ${selectedImageIndex === index ? "active" : ""}`}
+                      onClick={() => setSelectedImageIndex(index)}
+                    >
+                      <img src={image} alt={`${product.name} ${index + 1}`} className="gallery-thumb-tag" />
+                    </button>
+                  ))}
+                </div>
+              </>
+            ) : null}
           </div>
 
           <div className="product-modal-info">
             <div className="product-modal-header">
-              {product.tags.length > 0 && (
+              {product.tags.length > 0 ? (
                 <div className="tag-row">
                   {product.tags.map((tag) => (
                     <span key={tag} className="tag-chip">{tag}</span>
                   ))}
                 </div>
-              )}
+              ) : null}
               <h2>{product.name}</h2>
               <div className="product-price-stack product-price-stack-modal">
                 {product.discountPrice ? (
@@ -115,12 +160,8 @@ export function ProductModal({ product, onClose }: ProductModalProps) {
             </div>
 
             <p className="product-modal-description">{product.description}</p>
-            <div className="product-modal-support">
-              <span className="product-modal-support-pill">Carrito persistente</span>
-              <span className="product-modal-support-pill">Confirmación manual por WhatsApp</span>
-            </div>
 
-            {product.variantGroups.length > 0 && (
+            {product.variantGroups.length > 0 ? (
               <div className="product-modal-variants">
                 {product.variantGroups.map((group) => (
                   <div key={group.name} className="product-variant-group">
@@ -142,7 +183,7 @@ export function ProductModal({ product, onClose }: ProductModalProps) {
                   </div>
                 ))}
               </div>
-            )}
+            ) : null}
 
             <div className="product-modal-quantity">
               <label className="product-modal-label">Cantidad</label>

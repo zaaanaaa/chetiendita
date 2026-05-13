@@ -16,6 +16,9 @@ import {
   SessionUser,
   Tag,
   User,
+  UserInput,
+  UserRole,
+  UserWithOrders,
 } from "@/lib/types";
 import { flattenVariantGroups, normalizeVariantGroups } from "@/lib/validation";
 
@@ -29,6 +32,7 @@ type ProductRow = {
   price: number;
   discount_price: number | null;
   image: string;
+  images: string | null;
   featured: number;
   sold_count: number;
   created_at: string;
@@ -39,7 +43,9 @@ type ProductRow = {
 type UserRow = {
   id: number;
   username: string;
+  name: string;
   email: string;
+  phone: string;
   role: "admin" | "user";
 };
 
@@ -81,12 +87,19 @@ function openDatabase() {
   return database;
 }
 
+function hasColumn(db: InstanceType<typeof Database>, tableName: string, columnName: string) {
+  const columns = db.prepare(`PRAGMA table_info(${tableName})`).all() as Array<{ name: string }>;
+  return columns.some((column) => column.name === columnName);
+}
+
 function initializeDatabase(db: InstanceType<typeof Database>) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       username TEXT UNIQUE NOT NULL,
+      name TEXT NOT NULL DEFAULT '',
       email TEXT UNIQUE,
+      phone TEXT NOT NULL DEFAULT '',
       password TEXT NOT NULL,
       role TEXT NOT NULL CHECK(role IN ('admin', 'user'))
     );
@@ -109,6 +122,7 @@ function initializeDatabase(db: InstanceType<typeof Database>) {
       price INTEGER NOT NULL,
       discount_price INTEGER,
       image TEXT NOT NULL,
+      images TEXT NOT NULL DEFAULT '[]',
       featured INTEGER NOT NULL DEFAULT 0,
       sold_count INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -159,18 +173,18 @@ function initializeDatabase(db: InstanceType<typeof Database>) {
   const userCount = db.prepare("SELECT COUNT(*) AS count FROM users").get() as { count: number };
   if (userCount.count === 0) {
     const insertUser = db.prepare(
-      "INSERT INTO users(username, email, password, role) VALUES (?, ?, ?, ?)",
+      "INSERT INTO users(username, name, email, phone, password, role) VALUES (?, ?, ?, ?, ?, ?)",
     );
-    insertUser.run("admin", "admin@chetiendita.local", "admin123", "admin");
-    insertUser.run("user", "user@chetiendita.local", "user123", "user");
+    insertUser.run("admin", "Astrid Andenmatten", "admin@chetiendita.local", "", "admin123", "admin");
+    insertUser.run("user", "Usuario Demo", "user@chetiendita.local", "", "user123", "user");
   }
 
   const productCount = db.prepare("SELECT COUNT(*) AS count FROM products").get() as { count: number };
   if (productCount.count === 0) {
     const insertProduct = db.prepare(
       `
-      INSERT INTO products(name, description, price, discount_price, image, featured, variants, variant_groups)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO products(name, description, price, discount_price, image, images, featured, variants, variant_groups)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
     );
     const insertTag = db.prepare("INSERT OR IGNORE INTO tags(name) VALUES (?)");
@@ -181,16 +195,17 @@ function initializeDatabase(db: InstanceType<typeof Database>) {
 
     const transaction = db.transaction(() => {
       for (const item of productsSeed) {
-        const variantGroups = normalizeVariantGroups(undefined, []);
+        const imagesJson = JSON.stringify([item.image]);
         const result = insertProduct.run(
           item.name,
           item.description,
           Number(item.price),
           null,
           item.image,
+          imagesJson,
           item.featured ? 1 : 0,
           JSON.stringify([]),
-          JSON.stringify(variantGroups),
+          JSON.stringify([]),
         );
         db.prepare(
           "UPDATE products SET sold_count = ?, created_at = datetime('now', ?) WHERE id = ?",
@@ -212,34 +227,34 @@ function initializeDatabase(db: InstanceType<typeof Database>) {
   }
 }
 
-function hasColumn(db: InstanceType<typeof Database>, tableName: string, columnName: string) {
-  const columns = db.prepare(`PRAGMA table_info(${tableName})`).all() as Array<{ name: string }>;
-  return columns.some((column) => column.name === columnName);
-}
-
 function migrateDatabase(db: InstanceType<typeof Database>) {
   if (!hasColumn(db, "users", "email")) {
     db.exec("ALTER TABLE users ADD COLUMN email TEXT");
+  }
+  if (!hasColumn(db, "users", "name")) {
+    db.exec("ALTER TABLE users ADD COLUMN name TEXT NOT NULL DEFAULT ''");
+  }
+  if (!hasColumn(db, "users", "phone")) {
+    db.exec("ALTER TABLE users ADD COLUMN phone TEXT NOT NULL DEFAULT ''");
   }
 
   if (!hasColumn(db, "products", "sold_count")) {
     db.exec("ALTER TABLE products ADD COLUMN sold_count INTEGER NOT NULL DEFAULT 0");
   }
-
   if (!hasColumn(db, "products", "created_at")) {
     db.exec("ALTER TABLE products ADD COLUMN created_at TEXT");
   }
-
   if (!hasColumn(db, "products", "variants")) {
     db.exec("ALTER TABLE products ADD COLUMN variants TEXT NOT NULL DEFAULT '[]'");
   }
-
   if (!hasColumn(db, "products", "variant_groups")) {
     db.exec("ALTER TABLE products ADD COLUMN variant_groups TEXT NOT NULL DEFAULT '[]'");
   }
-
   if (!hasColumn(db, "products", "discount_price")) {
     db.exec("ALTER TABLE products ADD COLUMN discount_price INTEGER");
+  }
+  if (!hasColumn(db, "products", "images")) {
+    db.exec("ALTER TABLE products ADD COLUMN images TEXT NOT NULL DEFAULT '[]'");
   }
 
   if (!hasColumn(db, "orders", "user_id")) {
@@ -256,24 +271,32 @@ function migrateDatabase(db: InstanceType<typeof Database>) {
     );
   `);
 
-  const productRows = db.prepare("SELECT id, variants, variant_groups FROM products").all() as Array<{
+  const productRows = db.prepare("SELECT id, image, images, variants, variant_groups FROM products").all() as Array<{
     id: number;
+    image: string;
+    images: string | null;
     variants: string | null;
     variant_groups: string | null;
   }>;
 
-  const updateGroups = db.prepare(
-    "UPDATE products SET variants = ?, variant_groups = ? WHERE id = ?",
+  const updateProductArrays = db.prepare(
+    "UPDATE products SET image = ?, images = ?, variants = ?, variant_groups = ? WHERE id = ?",
   );
 
-  const migrationTransaction = db.transaction(() => {
+  const productMigration = db.transaction(() => {
     for (const row of productRows) {
-      const groups = parseVariantGroups(row.variant_groups, row.variants);
-      updateGroups.run(JSON.stringify(flattenVariantGroups(groups)), JSON.stringify(groups), row.id);
+      const images = parseImages(row.images, row.image);
+      const variantGroups = parseVariantGroups(row.variant_groups, row.variants);
+      updateProductArrays.run(
+        images[0] || row.image,
+        JSON.stringify(images),
+        JSON.stringify(flattenVariantGroups(variantGroups)),
+        JSON.stringify(variantGroups),
+        row.id,
+      );
     }
   });
-
-  migrationTransaction();
+  productMigration();
 
   db.exec(`
     UPDATE users
@@ -283,6 +306,14 @@ function migrateDatabase(db: InstanceType<typeof Database>) {
       ELSE username || '@chetiendita.local'
     END
     WHERE email IS NULL OR trim(email) = '';
+
+    UPDATE users
+    SET name = CASE username
+      WHEN 'admin' THEN 'Astrid Andenmatten'
+      WHEN 'user' THEN 'Usuario Demo'
+      ELSE username
+    END
+    WHERE name IS NULL OR trim(name) = '';
 
     UPDATE products
     SET sold_count = CASE
@@ -304,25 +335,31 @@ function mapUser(row: UserRow): User {
   return {
     id: row.id,
     username: row.username,
+    name: row.name,
     email: row.email,
+    phone: row.phone,
     role: row.role,
   };
 }
 
-function getTagsForProduct(productId: number) {
-  const rows = db
-    .prepare(
-      `
-      SELECT t.name
-      FROM tags t
-      JOIN product_tags pt ON pt.tag_id = t.id
-      WHERE pt.product_id = ?
-      ORDER BY t.name
-      `,
-    )
-    .all(productId) as Array<{ name: string }>;
+function parseImages(rawImages: string | null, fallbackImage: string): string[] {
+  if (rawImages) {
+    try {
+      const parsed = JSON.parse(rawImages);
+      if (Array.isArray(parsed)) {
+        const normalized = parsed.filter(
+          (image: unknown) => typeof image === "string" && image.trim(),
+        );
+        if (normalized.length > 0) {
+          return normalized;
+        }
+      }
+    } catch {
+      // ignore legacy format
+    }
+  }
 
-  return rows.map((row) => row.name);
+  return fallbackImage ? [fallbackImage] : [];
 }
 
 function parseLegacyVariants(raw: string | null): string[] {
@@ -360,7 +397,24 @@ function parseVariantGroups(
   return normalizeVariantGroups(undefined, legacyVariants);
 }
 
+function getTagsForProduct(productId: number) {
+  const rows = db
+    .prepare(
+      `
+      SELECT t.name
+      FROM tags t
+      JOIN product_tags pt ON pt.tag_id = t.id
+      WHERE pt.product_id = ?
+      ORDER BY t.name
+      `,
+    )
+    .all(productId) as Array<{ name: string }>;
+
+  return rows.map((row) => row.name);
+}
+
 function mapProduct(row: ProductRow): Product {
+  const images = parseImages(row.images, row.image);
   const variantGroups = parseVariantGroups(row.variant_groups, row.variants);
 
   return {
@@ -369,7 +423,8 @@ function mapProduct(row: ProductRow): Product {
     description: row.description,
     price: row.price,
     discountPrice: row.discount_price ?? null,
-    image: row.image,
+    image: images[0] || row.image,
+    images,
     featured: Boolean(row.featured),
     soldCount: row.sold_count,
     createdAt: row.created_at,
@@ -407,8 +462,7 @@ export function listProducts(filters?: {
 
   if (sort === "newest") {
     return products.sort(
-      (a, b) =>
-        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime() || b.id - a.id,
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime() || b.id - a.id,
     );
   }
 
@@ -422,29 +476,135 @@ export function listTags(): Tag[] {
 export function findUserByCredentials(username: string, password: string) {
   const row = db
     .prepare(
-      "SELECT id, username, email, role FROM users WHERE (username = ? OR email = ?) AND password = ?",
+      `
+      SELECT id, username, name, email, phone, role
+      FROM users
+      WHERE (username = ? OR email = ?) AND password = ?
+      `,
     )
     .get(username, username.toLowerCase(), password) as UserRow | undefined;
   return row ? mapUser(row) : null;
 }
 
-export function createUser(username: string, email: string, password: string) {
+export function createUser(
+  username: string,
+  email: string,
+  password: string,
+  options?: { name?: string; phone?: string; role?: UserRole },
+) {
   const result = db
-    .prepare("INSERT INTO users(username, email, password, role) VALUES (?, ?, ?, 'user')")
-    .run(username, email, password);
+    .prepare(
+      "INSERT INTO users(username, name, email, phone, password, role) VALUES (?, ?, ?, ?, ?, ?)",
+    )
+    .run(
+      username,
+      options?.name?.trim() || username,
+      email,
+      options?.phone?.trim() || "",
+      password,
+      options?.role || "user",
+    );
 
   const row = db
-    .prepare("SELECT id, username, email, role FROM users WHERE id = ?")
+    .prepare("SELECT id, username, name, email, phone, role FROM users WHERE id = ?")
     .get(Number(result.lastInsertRowid)) as UserRow;
 
   return mapUser(row);
 }
 
+export function createManagedUser(input: UserInput) {
+  return createUser(input.username, input.email, input.password || "1234", {
+    name: input.name,
+    phone: input.phone,
+    role: input.role,
+  });
+}
+
+export function updateManagedUser(userId: number, input: UserInput) {
+  if (input.password) {
+    db.prepare(
+      `
+      UPDATE users
+      SET username = ?, name = ?, email = ?, phone = ?, role = ?, password = ?
+      WHERE id = ?
+      `,
+    ).run(input.username, input.name, input.email, input.phone, input.role, input.password, userId);
+  } else {
+    db.prepare(
+      `
+      UPDATE users
+      SET username = ?, name = ?, email = ?, phone = ?, role = ?
+      WHERE id = ?
+      `,
+    ).run(input.username, input.name, input.email, input.phone, input.role, userId);
+  }
+
+  return findUser(userId);
+}
+
+export function deleteUserRecord(userId: number) {
+  db.prepare("DELETE FROM users WHERE id = ?").run(userId);
+}
+
 export function findUserByEmail(email: string) {
   const row = db
-    .prepare("SELECT id, username, email, role FROM users WHERE email = ?")
+    .prepare("SELECT id, username, name, email, phone, role FROM users WHERE email = ?")
     .get(email.toLowerCase()) as UserRow | undefined;
   return row ? mapUser(row) : null;
+}
+
+export function findUser(userId: number) {
+  const row = db
+    .prepare("SELECT id, username, name, email, phone, role FROM users WHERE id = ?")
+    .get(userId) as UserRow | undefined;
+  return row ? mapUser(row) : null;
+}
+
+export function listUsers(search?: string) {
+  const normalizedSearch = search?.trim().toLowerCase() || "";
+  const users = db
+    .prepare("SELECT id, username, name, email, phone, role FROM users ORDER BY name, username")
+    .all() as UserRow[];
+
+  if (!normalizedSearch) {
+    return users.map(mapUser);
+  }
+
+  return users
+    .map(mapUser)
+    .filter((user) => {
+      const matchesText =
+        user.username.toLowerCase().includes(normalizedSearch) ||
+        user.name.toLowerCase().includes(normalizedSearch) ||
+        user.email.toLowerCase().includes(normalizedSearch) ||
+        user.phone.toLowerCase().includes(normalizedSearch);
+
+      if (matchesText) {
+        return true;
+      }
+
+      const possibleOrderId = Number(normalizedSearch);
+      if (Number.isInteger(possibleOrderId) && possibleOrderId > 0) {
+        const order = db
+          .prepare("SELECT user_id FROM orders WHERE id = ?")
+          .get(possibleOrderId) as { user_id: number | null } | undefined;
+        return order?.user_id === user.id;
+      }
+
+      return false;
+    });
+}
+
+export function getUserWithOrders(userId: number): UserWithOrders | null {
+  const user = findUser(userId);
+  if (!user) {
+    return null;
+  }
+
+  return {
+    ...user,
+    orders: listOrdersByUser(userId),
+  };
 }
 
 export function createSession(userId: number, token: string) {
@@ -455,8 +615,7 @@ export function findSessionUser(token: string): SessionUser | null {
   const row = db
     .prepare(
       `
-      SELECT u.id, u.username, u.role
-      , u.email
+      SELECT u.id, u.username, u.name, u.email, u.phone, u.role
       FROM sessions s
       JOIN users u ON u.id = s.user_id
       WHERE s.token = ?
@@ -553,11 +712,12 @@ function serializeVariantGroups(groups?: ProductVariantGroup[]) {
 
 export function createProduct(input: ProductInput) {
   const { variantsJson, variantGroupsJson } = serializeVariantGroups(input.variantGroups);
+  const imagesJson = JSON.stringify(input.images);
   const result = db
     .prepare(
       `
-      INSERT INTO products(name, description, price, discount_price, image, featured, variants, variant_groups)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO products(name, description, price, discount_price, image, images, featured, variants, variant_groups)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
     )
     .run(
@@ -566,6 +726,7 @@ export function createProduct(input: ProductInput) {
       input.price,
       input.discountPrice,
       input.image,
+      imagesJson,
       input.featured ? 1 : 0,
       variantsJson,
       variantGroupsJson,
@@ -583,7 +744,7 @@ export function updateProduct(productId: number, input: ProductInput) {
   db.prepare(
     `
     UPDATE products
-    SET name = ?, description = ?, price = ?, discount_price = ?, image = ?, featured = ?, variants = ?, variant_groups = ?
+    SET name = ?, description = ?, price = ?, discount_price = ?, image = ?, images = ?, featured = ?, variants = ?, variant_groups = ?
     WHERE id = ?
     `,
   ).run(
@@ -592,6 +753,7 @@ export function updateProduct(productId: number, input: ProductInput) {
     input.price,
     input.discountPrice,
     input.image,
+    JSON.stringify(input.images),
     input.featured ? 1 : 0,
     variantsJson,
     variantGroupsJson,
@@ -666,6 +828,10 @@ function replaceOrderItems(orderId: number, items: OrderInput["items"]) {
   }
 }
 
+function calculateOrderTotal(items: OrderInput["items"]) {
+  return items.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
+}
+
 export function createOrder(input: OrderInput & { total: number; userId?: number | null }) {
   const result = db
     .prepare(
@@ -674,7 +840,13 @@ export function createOrder(input: OrderInput & { total: number; userId?: number
       VALUES (?, ?, ?, ?, 'pending', ?)
       `,
     )
-    .run(input.userId ?? null, input.customerName, input.customerPhone, input.notes, input.total);
+    .run(
+      input.userId ?? null,
+      (input.customerName || "").trim() || "Cliente",
+      (input.customerPhone || "").trim(),
+      (input.notes || "").trim(),
+      input.total,
+    );
 
   const orderId = Number(result.lastInsertRowid);
   replaceOrderItems(orderId, input.items);
@@ -684,9 +856,7 @@ export function createOrder(input: OrderInput & { total: number; userId?: number
 }
 
 export function listOrders() {
-  const rows = db
-    .prepare("SELECT * FROM orders ORDER BY created_at DESC")
-    .all() as OrderRow[];
+  const rows = db.prepare("SELECT * FROM orders ORDER BY created_at DESC").all() as OrderRow[];
   return rows.map(mapOrder);
 }
 
@@ -716,7 +886,14 @@ export function updateOrder(orderId: number, input: OrderUpdateInput) {
       SET customer_name = ?, customer_phone = ?, notes = ?, status = ?, total = ?
       WHERE id = ?
       `,
-    ).run(input.customerName, input.customerPhone, input.notes, input.status, calculateOrderTotal(input.items), orderId);
+    ).run(
+      input.customerName,
+      input.customerPhone,
+      input.notes,
+      input.status,
+      calculateOrderTotal(input.items),
+      orderId,
+    );
 
     replaceOrderItems(orderId, input.items);
   });
@@ -725,8 +902,4 @@ export function updateOrder(orderId: number, input: OrderUpdateInput) {
 
   const row = db.prepare("SELECT * FROM orders WHERE id = ?").get(orderId) as OrderRow | undefined;
   return row ? mapOrder(row) : null;
-}
-
-function calculateOrderTotal(items: OrderInput["items"]) {
-  return items.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
 }

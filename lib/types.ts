@@ -3,12 +3,23 @@ export type UserRole = "admin" | "user";
 export interface User {
   id: number;
   username: string;
+  name: string;
   email: string;
+  phone: string;
   role: UserRole;
 }
 
 export interface SessionUser extends User {
   token: string;
+}
+
+export interface UserInput {
+  username: string;
+  name: string;
+  email: string;
+  phone: string;
+  role: UserRole;
+  password?: string;
 }
 
 export interface Tag {
@@ -28,6 +39,7 @@ export interface Product {
   price: number;
   discountPrice: number | null;
   image: string;
+  images: string[];
   featured: boolean;
   soldCount: number;
   createdAt: string;
@@ -42,6 +54,7 @@ export interface ProductInput {
   price: number;
   discountPrice: number | null;
   image: string;
+  images: string[];
   featured: boolean;
   tags: string[];
   variants?: string[];
@@ -82,9 +95,9 @@ export interface OrderItemInput {
 }
 
 export interface OrderInput {
-  customerName: string;
-  customerPhone: string;
-  notes: string;
+  customerName?: string;
+  customerPhone?: string;
+  notes?: string;
   items: OrderItemInput[];
 }
 
@@ -94,6 +107,10 @@ export interface OrderUpdateInput {
   notes: string;
   status: OrderStatus;
   items: OrderItemInput[];
+}
+
+export interface UserWithOrders extends User {
+  orders: Order[];
 }
 
 export interface AuthResponse {
