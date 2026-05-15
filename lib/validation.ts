@@ -1,4 +1,5 @@
 import {
+  HeroSettings,
   OrderInput,
   OrderStatus,
   OrderUpdateInput,
@@ -164,21 +165,40 @@ function normalizeImages(images: string[], fallbackImage: string) {
   return isValidImageValue(trimmedFallback) ? [trimmedFallback] : [];
 }
 
+export function validateHeroSettings(input: HeroSettings) {
+  const images = normalizeImages(input.images || [], "");
+  return {
+    ok: true as const,
+    hero: {
+      images,
+    },
+  };
+}
+
 export function validateProductInput(input: ProductInput) {
   const variantGroups = normalizeVariantGroups(input.variantGroups, input.variants);
   const images = normalizeImages(input.images || [], input.image || "");
+  const normalizedTags = Array.from(new Set(input.tags.map(normalizeTagName).filter(Boolean)));
+  const normalizedDiscountPrice =
+    input.discountPrice === null || input.discountPrice === undefined || input.discountPrice === 0
+      ? null
+      : Number(input.discountPrice);
+  const hasDiscount =
+    normalizedDiscountPrice !== null &&
+    Number.isFinite(normalizedDiscountPrice) &&
+    normalizedDiscountPrice > 0;
+  const tags = hasDiscount
+    ? Array.from(new Set([...normalizedTags, "descuento"]))
+    : normalizedTags.filter((tag) => tag !== "descuento");
   const payload: ProductInput = {
     name: input.name.trim(),
     description: input.description.trim(),
     price: Number(input.price),
-    discountPrice:
-      input.discountPrice === null || input.discountPrice === undefined || input.discountPrice === 0
-        ? null
-        : Number(input.discountPrice),
+    discountPrice: normalizedDiscountPrice,
     image: images[0] || "",
     images,
-    featured: Boolean(input.featured),
-    tags: Array.from(new Set(input.tags.map(normalizeTagName).filter(Boolean))),
+    featured: Boolean(input.featured) || hasDiscount,
+    tags,
     variants: flattenVariantGroups(variantGroups),
     variantGroups,
   };

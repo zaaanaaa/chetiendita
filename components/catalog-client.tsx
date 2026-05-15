@@ -7,6 +7,7 @@ interface CatalogClientProps {
   initialProducts: Product[];
   tags: Tag[];
   user: User | null;
+  heroImages: string[];
 }
 
 export function CatalogClient(props: CatalogClientProps) {

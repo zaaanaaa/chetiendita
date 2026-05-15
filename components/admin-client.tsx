@@ -138,6 +138,20 @@ function calculateDraftTotal(items: OrderItemInput[]) {
   return items.reduce((sum, item) => sum + Number(item.unitPrice || 0) * Number(item.quantity || 0), 0);
 }
 
+function createOrderItemFromProduct(product: Product): OrderItemInput {
+  const firstGroup = product.variantGroups[0];
+  const defaultVariant = firstGroup?.options[0] ? `${firstGroup.name}: ${firstGroup.options[0]}` : "";
+
+  return {
+    productId: product.id,
+    productName: product.name,
+    variant: defaultVariant,
+    quantity: 1,
+    unitPrice: getEffectivePrice(product),
+    image: product.images[0] || product.image,
+  };
+}
+
 export function AdminClient({ user, initialProducts, initialTags }: AdminClientProps) {
   const router = useRouter();
   const [products, setProducts] = useState(initialProducts);
@@ -169,10 +183,13 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
   const [userForm, setUserForm] = useState<UserInput>(EMPTY_USER_FORM);
   const [urlImageDraft, setUrlImageDraft] = useState("");
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [productPickerOpen, setProductPickerOpen] = useState(false);
+  const [orderProductSearch, setOrderProductSearch] = useState("");
   const [isPending, startTransition] = useTransition();
 
   useEffect(() => {
-    const anyModalOpen = editorOpen || tagModalOpen || tagPickerOpen || !!selectedOrder || userEditorOpen;
+    const anyModalOpen =
+      editorOpen || tagModalOpen || tagPickerOpen || !!selectedOrder || userEditorOpen || productPickerOpen;
     if (anyModalOpen) {
       document.body.classList.add("modal-open");
     } else {
@@ -181,7 +198,7 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
     return () => {
       document.body.classList.remove("modal-open");
     };
-  }, [editorOpen, tagModalOpen, tagPickerOpen, selectedOrder, userEditorOpen]);
+  }, [editorOpen, tagModalOpen, tagPickerOpen, selectedOrder, userEditorOpen, productPickerOpen]);
 
   useEffect(() => {
     if (activeTab === "orders") {
@@ -228,6 +245,22 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
     () => (orderDraft ? calculateDraftTotal(orderDraft.items) : 0),
     [orderDraft],
   );
+
+  const orderPickerProducts = useMemo(() => {
+    const normalizedSearch = orderProductSearch.trim().toLowerCase();
+
+    return products.filter((product) => {
+      if (!normalizedSearch) {
+        return true;
+      }
+
+      return (
+        product.name.toLowerCase().includes(normalizedSearch) ||
+        product.description.toLowerCase().includes(normalizedSearch) ||
+        product.tags.some((tag) => tag.toLowerCase().includes(normalizedSearch))
+      );
+    });
+  }, [orderProductSearch, products]);
 
   async function refreshAdminData() {
     const [productResponse, tagResponse] = await Promise.all([
@@ -525,6 +558,8 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
     setSelectedOrder(null);
     setOrderDraft(null);
     setOrderMessage("");
+    setProductPickerOpen(false);
+    setOrderProductSearch("");
   }
 
   function updateOrderField<K extends keyof OrderUpdateInput>(field: K, value: OrderUpdateInput[K]) {
@@ -558,10 +593,16 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
     });
   }
 
-  function addOrderItem() {
+  function openOrderProductPicker() {
+    setOrderProductSearch("");
+    setProductPickerOpen(true);
+  }
+
+  function addProductToOrder(product: Product) {
     setOrderDraft((current) =>
-      current ? { ...current, items: [...current.items, createEmptyOrderItem()] } : current,
+      current ? { ...current, items: [...current.items, createOrderItemFromProduct(product)] } : current,
     );
+    setProductPickerOpen(false);
   }
 
   function removeOrderItem(index: number) {
@@ -597,6 +638,21 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
 
       await loadOrders();
       closeOrderEditor();
+    });
+  }
+
+  function removeOrder(orderId: number) {
+    startTransition(async () => {
+      const response = await fetch(`/api/orders/${orderId}`, { method: "DELETE" });
+      if (!response.ok) {
+        setOrderMessage("No se pudo eliminar el pedido.");
+        return;
+      }
+
+      await loadOrders();
+      if (selectedOrder?.id === orderId) {
+        closeOrderEditor();
+      }
     });
   }
 
@@ -818,6 +874,16 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
                       <div className="order-card-total">
                         <span>{order.items.length} item(s)</span>
                         <strong>{formatCurrency(order.total)}</strong>
+                        <button
+                          className="danger-button order-delete-btn"
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            removeOrder(order.id);
+                          }}
+                        >
+                          Eliminar
+                        </button>
                       </div>
                     </article>
                   ))}
@@ -850,6 +916,16 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
                       <div className="order-card-total">
                         <span>{order.items.length} item(s)</span>
                         <strong>{formatCurrency(order.total)}</strong>
+                        <button
+                          className="danger-button order-delete-btn"
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            removeOrder(order.id);
+                          }}
+                        >
+                          Eliminar
+                        </button>
                       </div>
                     </article>
                   ))}
@@ -954,6 +1030,18 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
                               <div className="order-card-total">
                                 <strong>{formatCurrency(order.total)}</strong>
                               </div>
+                              <div className="order-history-items">
+                                {order.items.map((item) => (
+                                  <div key={item.id} className="order-history-item">
+                                    <div className="order-item-img" style={{ backgroundImage: `url(${item.image})` }} />
+                                    <div>
+                                      <h4>{item.productName}</h4>
+                                      {item.variant ? <p>{item.variant}</p> : null}
+                                    </div>
+                                    <span>{item.quantity}x</span>
+                                  </div>
+                                ))}
+                              </div>
                             </article>
                           ))}
                         </div>
@@ -983,19 +1071,31 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
             <form className="product-editor-compact" onSubmit={submitProduct}>
               <section className="editor-section">
                 <div className="editor-grid editor-grid-compact">
-                  <input type="text" value={productForm.name} onChange={(e) => setProductForm({ ...productForm, name: e.target.value })} placeholder="Nombre" required />
+                  <label className="stack-form compact-field">
+                    <span className="field-label">Nombre del producto</span>
+                    <input type="text" value={productForm.name} onChange={(e) => setProductForm({ ...productForm, name: e.target.value })} placeholder="Nombre" required />
+                  </label>
+                  <label className="stack-form compact-field">
+                    <span className="field-label">Precio normal</span>
                   <div className="currency-input-wrap compact-price-field">
                     <span>$</span>
                     <input type="number" min={1} value={productForm.price || ""} onChange={(e) => setProductForm({ ...productForm, price: Number(e.target.value) })} placeholder="Precio normal" required />
                   </div>
+                  </label>
+                  <label className="stack-form compact-field">
+                    <span className="field-label">Precio con descuento</span>
                   <div className="currency-input-wrap compact-price-field">
                     <span>$</span>
                     <input type="number" min={0} value={productForm.discountPrice || ""} onChange={(e) => setProductForm({ ...productForm, discountPrice: e.target.value ? Number(e.target.value) : null })} placeholder="Precio con descuento" />
                   </div>
+                  </label>
                 </div>
 
                 <textarea rows={3} value={productForm.description} onChange={(e) => setProductForm({ ...productForm, description: e.target.value })} placeholder="Descripción" required />
                 <label className="checkbox-row"><input type="checkbox" checked={productForm.featured} onChange={(e) => setProductForm({ ...productForm, featured: e.target.checked })} />Marcar como destacado</label>
+                {productForm.discountPrice ? (
+                  <p className="helper-text">Con descuento activo se marcará automáticamente como destacado y recibirá la etiqueta `descuento`.</p>
+                ) : null}
               </section>
 
               <section className="editor-section">
@@ -1191,7 +1291,7 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
                 return (
                   <div key={`${index}-${item.productName}`} className="order-edit-item-card">
                     <div className="order-edit-item-grid">
-                      <input type="text" value={item.productName} onChange={(e) => updateOrderItem(index, "productName", e.target.value)} placeholder="Producto" disabled={isExistingProduct} />
+                      <input type="text" value={item.productName} onChange={(e) => updateOrderItem(index, "productName", e.target.value)} placeholder="Producto" disabled readOnly={isExistingProduct} />
                       <input type="text" value={item.variant} onChange={(e) => updateOrderItem(index, "variant", e.target.value)} placeholder="Tipo. Ej: Color: Negro · Talle: M" />
                     </div>
                     <div className="order-edit-item-grid order-edit-item-grid-tight">
@@ -1208,7 +1308,7 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
             </div>
 
             <div className="order-edit-footer-row">
-              <button className="secondary-button" type="button" onClick={addOrderItem}>Agregar item</button>
+              <button className="secondary-button" type="button" onClick={openOrderProductPicker}>Agregar producto</button>
               <div className="order-detail-total">
                 <span>Total recalculado</span>
                 <strong>{formatCurrency(orderDraftTotal)}</strong>
@@ -1219,9 +1319,65 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
               <button className="primary-button" type="button" disabled={isPending} onClick={() => saveOrderChanges("accepted")}>Aceptar pedido</button>
               <button className="danger-button" type="button" disabled={isPending} onClick={() => saveOrderChanges("rejected")}>Rechazar pedido</button>
               <button className="secondary-button" type="button" disabled={isPending} onClick={() => saveOrderChanges("pending")}>Guardar cambios</button>
+              <button className="danger-button" type="button" disabled={isPending} onClick={() => removeOrder(selectedOrder.id)}>Eliminar pedido</button>
               <button className="secondary-button" type="button" onClick={closeOrderEditor}>Cancelar</button>
             </div>
             <p className={`feedback ${orderMessage ? "visible" : ""}`}>{orderMessage}</p>
+          </div>
+        </div>
+      ) : null}
+
+      {productPickerOpen ? (
+        <div className="modal-backdrop modal-backdrop-front" role="presentation" onClick={() => setProductPickerOpen(false)}>
+          <div className="modal-card modal-card-order modal-card-order-wide" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div>
+                <p className="section-overline">Pedidos</p>
+                <h2>Elegir producto del catálogo</h2>
+              </div>
+              <button className="icon-button" type="button" onClick={() => setProductPickerOpen(false)} aria-label="Cerrar">
+                ×
+              </button>
+            </div>
+
+            <div className="stack-form">
+              <input
+                type="search"
+                value={orderProductSearch}
+                onChange={(e) => setOrderProductSearch(e.target.value)}
+                placeholder="Buscar por nombre, descripción o etiqueta"
+              />
+
+              <div className="orders-list order-picker-list">
+                {orderPickerProducts.map((product) => (
+                  <article key={product.id} className="inventory-card inventory-card-pick">
+                    <div className="inventory-preview">
+                      <div className="inventory-media-frame">
+                        <img src={product.image} alt={product.name} className="inventory-media-tag" />
+                      </div>
+                      <div>
+                        <div className="inventory-title-row">
+                          <h3>{product.name}</h3>
+                          {product.discountPrice ? <span className="discount-badge">Descuento</span> : null}
+                        </div>
+                        <p>{product.description}</p>
+                        <div className="tag-row">
+                          {product.tags.map((tag) => (
+                            <span key={tag} className="tag-chip">#{tag}</span>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="inventory-actions">
+                      <strong>{formatCurrency(getEffectivePrice(product))}</strong>
+                      <button className="primary-button" type="button" onClick={() => addProductToOrder(product)}>
+                        Agregar
+                      </button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </div>
           </div>
         </div>
       ) : null}

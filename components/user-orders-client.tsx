@@ -44,6 +44,7 @@ export function UserOrdersClient({ user, orders }: UserOrdersClientProps) {
   const [loginOpen, setLoginOpen] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [activeTab, setActiveTab] = useState<"pending" | "resolved">("pending");
+  const [expandedOrderId, setExpandedOrderId] = useState<number | null>(orders[0]?.id ?? null);
   const [, startTransition] = useTransition();
 
   const pendingOrders = useMemo(
@@ -76,6 +77,21 @@ export function UserOrdersClient({ user, orders }: UserOrdersClientProps) {
     });
   }
 
+  function toggleOrder(orderId: number) {
+    setExpandedOrderId((current) => (current === orderId ? null : orderId));
+  }
+
+  function cancelOrder(orderId: number) {
+    startTransition(async () => {
+      const response = await fetch(`/api/orders/${orderId}`, { method: "DELETE" });
+      if (!response.ok) {
+        return;
+      }
+
+      router.refresh();
+    });
+  }
+
   return (
     <>
       <HeaderShell
@@ -103,7 +119,7 @@ export function UserOrdersClient({ user, orders }: UserOrdersClientProps) {
               type="button"
               onClick={() => setActiveTab("pending")}
             >
-              <span className="orders-tab-label">En seguimiento</span>
+              <span className="orders-tab-label">Pendientes de confirmar</span>
               <span className="orders-tab-count">{pendingOrders.length}</span>
             </button>
             <button 
@@ -111,7 +127,7 @@ export function UserOrdersClient({ user, orders }: UserOrdersClientProps) {
               type="button"
               onClick={() => setActiveTab("resolved")}
             >
-              <span className="orders-tab-label">Aceptados o rechazados</span>
+              <span className="orders-tab-label">Historial de pedidos</span>
               <span className="orders-tab-count">{resolvedOrders.length}</span>
             </button>
           </div>
@@ -121,7 +137,7 @@ export function UserOrdersClient({ user, orders }: UserOrdersClientProps) {
               <div className="panel-heading">
                 <div>
                   <p className="section-overline">Pendientes</p>
-                  <h2>En seguimiento</h2>
+                  <h2>Pendientes de confirmar</h2>
                 </div>
               </div>
 
@@ -133,7 +149,7 @@ export function UserOrdersClient({ user, orders }: UserOrdersClientProps) {
               ) : (
                 <div className="orders-list">
                   {pendingOrders.map((order) => (
-                    <article key={order.id} className="order-card order-card-static order-card-history">
+                    <article key={order.id} className="order-card order-card-static order-card-history order-card-collapsible">
                       <div className="order-card-main">
                         <div className="order-card-header">
                           <h3>Pedido #{order.id}</h3>
@@ -156,18 +172,28 @@ export function UserOrdersClient({ user, orders }: UserOrdersClientProps) {
                         <span>{order.items.length} item(s)</span>
                         <strong>{formatCurrency(order.total)}</strong>
                       </div>
-                      <div className="order-history-items">
-                        {order.items.map((item) => (
-                          <div key={item.id} className="order-history-item">
-                            <div className="order-item-img" style={{ backgroundImage: `url(${item.image})` }} />
-                            <div>
-                              <h4>{item.productName}</h4>
-                              {item.variant ? <p>{item.variant}</p> : null}
-                            </div>
-                            <span>{item.quantity}x</span>
-                          </div>
-                        ))}
+                      <div className="order-card-actions-compact">
+                        <button className="secondary-button secondary-button-sm" type="button" onClick={() => toggleOrder(order.id)}>
+                          {expandedOrderId === order.id ? "Ocultar detalle" : "Ver detalle"}
+                        </button>
+                        <button className="danger-button danger-button-sm" type="button" onClick={() => cancelOrder(order.id)}>
+                          Cancelar pedido
+                        </button>
                       </div>
+                      {expandedOrderId === order.id ? (
+                        <div className="order-history-items">
+                          {order.items.map((item) => (
+                            <div key={item.id} className="order-history-item">
+                              <div className="order-item-img" style={{ backgroundImage: `url(${item.image})` }} />
+                              <div>
+                                <h4>{item.productName}</h4>
+                                {item.variant ? <p>{item.variant}</p> : null}
+                              </div>
+                              <span>{item.quantity}x</span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
                     </article>
                   ))}
                 </div>
@@ -180,7 +206,7 @@ export function UserOrdersClient({ user, orders }: UserOrdersClientProps) {
               <div className="panel-heading">
                 <div>
                   <p className="section-overline">Listos</p>
-                  <h2>Aceptados o rechazados</h2>
+                  <h2>Historial de pedidos</h2>
                 </div>
               </div>
 
@@ -192,7 +218,7 @@ export function UserOrdersClient({ user, orders }: UserOrdersClientProps) {
               ) : (
                 <div className="orders-list">
                   {resolvedOrders.map((order) => (
-                    <article key={order.id} className="order-card order-card-static order-card-history">
+                    <article key={order.id} className="order-card order-card-static order-card-history order-card-collapsible">
                       <div className="order-card-main">
                         <div className="order-card-header">
                           <h3>Pedido #{order.id}</h3>
@@ -214,18 +240,23 @@ export function UserOrdersClient({ user, orders }: UserOrdersClientProps) {
                         <span>{order.items.length} item(s)</span>
                         <strong>{formatCurrency(order.total)}</strong>
                       </div>
-                      <div className="order-history-items">
-                        {order.items.map((item) => (
-                          <div key={item.id} className="order-history-item">
-                            <div className="order-item-img" style={{ backgroundImage: `url(${item.image})` }} />
-                            <div>
-                              <h4>{item.productName}</h4>
-                              {item.variant ? <p>{item.variant}</p> : null}
+                      <button className="secondary-button secondary-button-sm" type="button" onClick={() => toggleOrder(order.id)}>
+                        {expandedOrderId === order.id ? "Ocultar detalle" : "Ver detalle"}
+                      </button>
+                      {expandedOrderId === order.id ? (
+                        <div className="order-history-items">
+                          {order.items.map((item) => (
+                            <div key={item.id} className="order-history-item">
+                              <div className="order-item-img" style={{ backgroundImage: `url(${item.image})` }} />
+                              <div>
+                                <h4>{item.productName}</h4>
+                                {item.variant ? <p>{item.variant}</p> : null}
+                              </div>
+                              <span>{item.quantity}x</span>
                             </div>
-                            <span>{item.quantity}x</span>
-                          </div>
-                        ))}
-                      </div>
+                          ))}
+                        </div>
+                      ) : null}
                     </article>
                   ))}
                 </div>

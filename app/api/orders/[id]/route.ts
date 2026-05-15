@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getCurrentUser } from "@/lib/auth";
-import { findOrder, updateOrder, updateOrderStatus } from "@/lib/db";
+import { deleteOrder, findOrder, updateOrder, updateOrderStatus } from "@/lib/db";
 import { jsonError } from "@/lib/http";
 import { OrderStatus, OrderUpdateInput } from "@/lib/types";
 import { validateOrderUpdateInput } from "@/lib/validation";
@@ -64,4 +64,36 @@ export async function PUT(
   });
 
   return NextResponse.json({ order });
+}
+
+export async function DELETE(
+  _request: Request,
+  context: { params: Promise<{ id: string }> },
+) {
+  const user = await getCurrentUser();
+  if (!user) {
+    return jsonError("unauthorized", 401);
+  }
+
+  const { id } = await context.params;
+  const orderId = Number(id);
+  if (!Number.isInteger(orderId) || orderId < 1) {
+    return jsonError("invalid_id", 400);
+  }
+
+  const existing = findOrder(orderId);
+  if (!existing) {
+    return jsonError("not_found", 404);
+  }
+
+  const canDeleteAsAdmin = user.role === "admin";
+  const canCancelOwnPendingOrder =
+    existing.userId === user.id && existing.status === "pending";
+
+  if (!canDeleteAsAdmin && !canCancelOwnPendingOrder) {
+    return jsonError("forbidden", 403);
+  }
+
+  deleteOrder(orderId);
+  return NextResponse.json({ ok: true });
 }

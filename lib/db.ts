@@ -5,6 +5,7 @@ import Database from "better-sqlite3";
 
 import productsSeed from "@/data/products.json";
 import {
+  HeroSettings,
   Order,
   OrderInput,
   OrderItem,
@@ -165,6 +166,11 @@ function initializeDatabase(db: InstanceType<typeof Database>) {
       unit_price INTEGER NOT NULL DEFAULT 0,
       image TEXT NOT NULL DEFAULT '',
       FOREIGN KEY(order_id) REFERENCES orders(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS site_settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
     );
   `);
 
@@ -395,6 +401,21 @@ function parseVariantGroups(
   }
 
   return normalizeVariantGroups(undefined, legacyVariants);
+}
+
+function parseHeroImages(rawValue: string | null | undefined): string[] {
+  if (!rawValue) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(rawValue);
+    return Array.isArray(parsed)
+      ? parsed.filter((image: unknown) => typeof image === "string" && image.trim())
+      : [];
+  } catch {
+    return [];
+  }
 }
 
 function getTagsForProduct(productId: number) {
@@ -643,6 +664,28 @@ export function createTag(name: string) {
     id: Number(result.lastInsertRowid),
     name,
   };
+}
+
+export function getHeroSettings(): HeroSettings {
+  const row = db
+    .prepare("SELECT value FROM site_settings WHERE key = 'hero_images'")
+    .get() as { value: string } | undefined;
+
+  return {
+    images: parseHeroImages(row?.value),
+  };
+}
+
+export function updateHeroSettings(input: HeroSettings) {
+  db.prepare(
+    `
+    INSERT INTO site_settings(key, value)
+    VALUES ('hero_images', ?)
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value
+    `,
+  ).run(JSON.stringify(input.images || []));
+
+  return getHeroSettings();
 }
 
 export function createPasswordRecoveryCode(email: string) {
@@ -902,4 +945,8 @@ export function updateOrder(orderId: number, input: OrderUpdateInput) {
 
   const row = db.prepare("SELECT * FROM orders WHERE id = ?").get(orderId) as OrderRow | undefined;
   return row ? mapOrder(row) : null;
+}
+
+export function deleteOrder(orderId: number) {
+  db.prepare("DELETE FROM orders WHERE id = ?").run(orderId);
 }

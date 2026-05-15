@@ -27,6 +27,10 @@ export interface Tag {
   name: string;
 }
 
+export interface HeroSettings {
+  images: string[];
+}
+
 export interface ProductVariantGroup {
   name: string;
   options: string[];

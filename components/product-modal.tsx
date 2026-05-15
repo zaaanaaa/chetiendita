@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 
 import { useCart } from "@/components/cart-context";
 import { Product } from "@/lib/types";
@@ -32,6 +33,7 @@ function getDiscountPercentage(product: Product) {
 
 export function ProductModal({ product, onClose }: ProductModalProps) {
   const { addItem } = useCart();
+  const router = useRouter();
   const [quantity, setQuantity] = useState(1);
   const [added, setAdded] = useState(false);
   const [selectedOptions, setSelectedOptions] = useState<Record<string, string>>({});
@@ -74,6 +76,11 @@ export function ProductModal({ product, onClose }: ProductModalProps) {
     });
     setAdded(true);
     window.setTimeout(() => setAdded(false), 1600);
+  }
+
+  function handleTagClick(tag: string) {
+    onClose();
+    router.push(`/catalogo?tag=${encodeURIComponent(tag)}`);
   }
 
   return (
@@ -145,7 +152,9 @@ export function ProductModal({ product, onClose }: ProductModalProps) {
               {product.tags.length > 0 ? (
                 <div className="tag-row">
                   {product.tags.map((tag) => (
-                    <span key={tag} className="tag-chip">{tag}</span>
+                    <button key={tag} type="button" className="tag-chip tag-chip-action" onClick={() => handleTagClick(tag)}>
+                      #{tag}
+                    </button>
                   ))}
                 </div>
               ) : null}

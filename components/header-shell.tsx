@@ -18,6 +18,8 @@ export function HeaderShell({ user, onLoginClick, onLogoutClick, onCartClick }: 
   const { totalItems } = useCart();
   const pathname = usePathname();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const isLanding = pathname === "/";
+  const isCatalog = pathname === "/catalogo";
 
   return (
     <header className="header-container">
@@ -30,15 +32,36 @@ export function HeaderShell({ user, onLoginClick, onLogoutClick, onCartClick }: 
             </Link>
 
             <div className="navbar-menu navbar-menu-inline">
-              <Link href="/catalogo" className={`nav-link ${pathname === "/catalogo" ? "active" : ""}`}>
-                Catálogo
-              </Link>
-              <a href="/#sobre-nosotros" className="nav-link">
-                Nosotros
-              </a>
-              <a href="/#contacto" className="nav-link">
-                Contacto
-              </a>
+              {!isCatalog ? (
+                <Link href="/catalogo" className={`nav-link ${pathname === "/catalogo" ? "active" : ""}`}>
+                  Catálogo
+                </Link>
+              ) : null}
+              {isLanding ? (
+                <>
+                  <a href="/#sobre-nosotros" className="nav-link">
+                    Nosotros
+                  </a>
+                  <a href="/#contacto" className="nav-link">
+                    Contacto
+                  </a>
+                </>
+              ) : (
+                <>
+                  <Link href="/" className={`nav-link ${pathname === "/" ? "active" : ""}`}>
+                    Inicio
+                  </Link>
+                  {user ? (
+                    <Link href="/pedidos" className={`nav-link ${pathname === "/pedidos" ? "active" : ""}`}>
+                      Mis pedidos
+                    </Link>
+                  ) : (
+                    <button type="button" className="nav-link nav-link-button" onClick={onCartClick}>
+                      Carrito
+                    </button>
+                  )}
+                </>
+              )}
             </div>
           </div>
 

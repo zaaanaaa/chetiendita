@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { ChangeEvent, useEffect, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
@@ -16,6 +16,7 @@ interface StorefrontClientProps {
   tags: Tag[];
   user: User | null;
   mode: "home" | "catalog";
+  heroImages: string[];
 }
 
 const LANDING_LIMIT = 9;
@@ -145,7 +146,7 @@ function ProductCard({
   );
 }
 
-export function StorefrontClient({ initialProducts, tags, user, mode }: StorefrontClientProps) {
+export function StorefrontClient({ initialProducts, tags, user, mode, heroImages }: StorefrontClientProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -156,12 +157,58 @@ export function StorefrontClient({ initialProducts, tags, user, mode }: Storefro
   const [cartOpen, setCartOpen] = useState(false);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
-  const [, startTransition] = useTransition();
+  const [heroEditorOpen, setHeroEditorOpen] = useState(false);
+  const [heroDraftImages, setHeroDraftImages] = useState(heroImages);
+  const [heroIndex, setHeroIndex] = useState(0);
+  const [heroPreviousIndex, setHeroPreviousIndex] = useState<number | null>(null);
+  const [heroAnimating, setHeroAnimating] = useState(false);
+  const [heroMessage, setHeroMessage] = useState("");
+  const [isPending, startTransition] = useTransition();
+  const canEditHero = user?.role === "admin";
 
   useEffect(() => {
     setQuery(searchParams.get("q") || "");
     setSelectedTag(searchParams.get("tag") || "");
   }, [searchParams]);
+
+  useEffect(() => {
+    setHeroDraftImages(heroImages);
+  }, [heroImages]);
+
+  useEffect(() => {
+    setHeroIndex(0);
+    setHeroPreviousIndex(null);
+    setHeroAnimating(false);
+  }, [heroDraftImages.length]);
+
+  useEffect(() => {
+    if (heroImages.length < 2) {
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      setHeroIndex((current) => {
+        setHeroPreviousIndex(current);
+        setHeroAnimating(true);
+        return (current + 1) % heroImages.length;
+      });
+    }, 4500);
+
+    return () => window.clearInterval(timer);
+  }, [heroImages]);
+
+  useEffect(() => {
+    if (!heroAnimating) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      setHeroAnimating(false);
+      setHeroPreviousIndex(null);
+    }, 850);
+
+    return () => window.clearTimeout(timer);
+  }, [heroAnimating]);
 
   const filteredProducts = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -182,7 +229,7 @@ export function StorefrontClient({ initialProducts, tags, user, mode }: Storefro
   const highlightedTags = tags.slice(0, 8);
 
   useEffect(() => {
-    const anyOpen = loginOpen || cartOpen || checkoutOpen || !!selectedProduct;
+    const anyOpen = loginOpen || cartOpen || checkoutOpen || !!selectedProduct || heroEditorOpen;
     if (anyOpen) {
       document.body.classList.add("modal-open");
     } else {
@@ -192,7 +239,52 @@ export function StorefrontClient({ initialProducts, tags, user, mode }: Storefro
     return () => {
       document.body.classList.remove("modal-open");
     };
-  }, [loginOpen, cartOpen, checkoutOpen, selectedProduct]);
+  }, [loginOpen, cartOpen, checkoutOpen, selectedProduct, heroEditorOpen]);
+
+  function handleHeroUpload(event: ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(event.target.files || []);
+    if (files.length === 0) {
+      return;
+    }
+
+    Promise.all(
+      files.map(
+        (file) =>
+          new Promise<string>((resolve) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : "");
+            reader.readAsDataURL(file);
+          }),
+      ),
+    ).then((encodedImages) => {
+      setHeroDraftImages((current) =>
+        Array.from(new Set([...current, ...encodedImages.filter(Boolean)])),
+      );
+    });
+  }
+
+  function removeHeroImage(index: number) {
+    setHeroDraftImages((current) => current.filter((_, currentIndex) => currentIndex !== index));
+  }
+
+  function saveHeroImages() {
+    setHeroMessage("");
+    startTransition(async () => {
+      const response = await fetch("/api/hero", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ images: heroDraftImages }),
+      });
+
+      if (!response.ok) {
+        setHeroMessage("No se pudieron guardar las imágenes del hero.");
+        return;
+      }
+
+      setHeroEditorOpen(false);
+      router.refresh();
+    });
+  }
 
   function updateFilters(next: { q?: string; tag?: string }) {
     const params = new URLSearchParams(searchParams.toString());
@@ -256,22 +348,79 @@ export function StorefrontClient({ initialProducts, tags, user, mode }: Storefro
       <main className="page-shell storefront-shell">
         {mode === "home" ? (
           <section className="storefront-hero storefront-hero-full">
-            <div className="storefront-hero-copy storefront-hero-copy-full">
-              <p className="hero-kicker">Objetos con oficio, color y carácter</p>
-              <h1 className="storefront-hero-title">
-                Una tienda pequeña con una experiencia mucho más clara y cálida.
-              </h1>
-              <p className="storefront-hero-description">
-                Descubrí productos artesanales y de diseño con una navegación simple, filtros útiles y un checkout directo para cerrar tu pedido sin fricción.
-              </p>
-              <div className="storefront-hero-actions">
-                <a href="#catalogo" className="primary-button">
-                  Explorar productos
-                </a>
-                <Link href="/catalogo" className="secondary-button">
-                  Ver catálogo completo
-                </Link>
-              </div>
+            <div
+              className={`storefront-hero-copy storefront-hero-copy-full ${heroImages.length > 0 ? "storefront-hero-carousel" : ""}`}
+            >
+              {heroImages.length > 0 ? (
+                <div className="hero-carousel-media" aria-hidden="true">
+                  {heroPreviousIndex !== null ? (
+                    <img
+                      src={heroImages[heroPreviousIndex]}
+                      alt=""
+                      className={`hero-carousel-image hero-carousel-image-previous ${
+                        heroAnimating ? "is-animating" : ""
+                      }`}
+                    />
+                  ) : null}
+                  <img
+                    src={heroImages[heroIndex]}
+                    alt=""
+                    className={`hero-carousel-image hero-carousel-image-current ${
+                      heroAnimating ? "is-animating" : ""
+                    }`}
+                  />
+                </div>
+              ) : null}
+              {canEditHero ? (
+                <button
+                  type="button"
+                  className="secondary-button hero-edit-btn"
+                  onClick={() => setHeroEditorOpen(true)}
+                >
+                  editar
+                </button>
+              ) : null}
+              {heroImages.length === 0 ? (
+                <>
+                  <p className="hero-kicker">Objetos con oficio, color y carácter</p>
+                  <h1 className="storefront-hero-title">
+                    Una tienda pequeña con una experiencia mucho más clara y cálida.
+                  </h1>
+                  <p className="storefront-hero-description">
+                    Descubrí productos artesanales y de diseño con una navegación simple,
+                    filtros útiles y un checkout directo para cerrar tu pedido sin fricción.
+                  </p>
+                  <div className="storefront-hero-actions">
+                    <a href="#catalogo" className="primary-button">
+                      Explorar productos
+                    </a>
+                    <Link href="/catalogo" className="secondary-button">
+                      Ver catálogo completo
+                    </Link>
+                  </div>
+                </>
+              ) : null}
+              {heroImages.length > 1 ? (
+                <div className="hero-carousel-dots">
+                  {heroImages.map((image, index) => (
+                    <button
+                      key={`${image}-${index}`}
+                      type="button"
+                      className={`hero-carousel-dot ${heroIndex === index ? "active" : ""}`}
+                      onClick={() => {
+                        if (index === heroIndex) {
+                          return;
+                        }
+
+                        setHeroPreviousIndex(heroIndex);
+                        setHeroAnimating(true);
+                        setHeroIndex(index);
+                      }}
+                      aria-label={`Ver imagen ${index + 1}`}
+                    />
+                  ))}
+                </div>
+              ) : null}
             </div>
           </section>
         ) : (
@@ -461,6 +610,57 @@ export function StorefrontClient({ initialProducts, tags, user, mode }: Storefro
       <CartDrawer open={cartOpen} onClose={() => setCartOpen(false)} onCheckout={() => setCheckoutOpen(true)} />
       <CheckoutModal open={checkoutOpen} onClose={() => setCheckoutOpen(false)} />
       {selectedProduct ? <ProductModal product={selectedProduct} onClose={() => setSelectedProduct(null)} /> : null}
+      {heroEditorOpen ? (
+        <div className="modal-backdrop" role="presentation" onClick={() => setHeroEditorOpen(false)}>
+          <div className="modal-card modal-card-editor modal-card-editor-wide" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-header">
+              <div>
+                <p className="section-overline">Landing</p>
+                <h2>Editar carrusel del hero</h2>
+              </div>
+              <button className="icon-button" type="button" onClick={() => setHeroEditorOpen(false)} aria-label="Cerrar">
+                ×
+              </button>
+            </div>
+
+            <div className="stack-form">
+              <label className="file-upload-field file-upload-field-multi">
+                <span>Subir imágenes desde tu dispositivo</span>
+                <input type="file" accept="image/*" multiple onChange={handleHeroUpload} />
+                <strong>Seleccionar archivos</strong>
+              </label>
+
+              {heroDraftImages.length > 0 ? (
+                <div className="editor-gallery-grid">
+                  {heroDraftImages.map((image, index) => (
+                    <div key={`${image}-${index}`} className="editor-gallery-card">
+                      <div className="editor-image-preview-media hero-editor-preview" style={{ backgroundImage: `url(${image})` }} />
+                      <button className="danger-button" type="button" onClick={() => removeHeroImage(index)}>
+                        Eliminar
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="empty-state">
+                  <h3>Sin imágenes cargadas</h3>
+                  <p>Si dejás este listado vacío, se volverá a mostrar el hero actual.</p>
+                </div>
+              )}
+
+              <div className="inline-actions">
+                <button className="primary-button" type="button" onClick={saveHeroImages} disabled={isPending}>
+                  Guardar hero
+                </button>
+                <button className="secondary-button" type="button" onClick={() => setHeroEditorOpen(false)}>
+                  Cancelar
+                </button>
+              </div>
+              <p className={`feedback ${heroMessage ? "visible" : ""}`}>{heroMessage}</p>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </>
   );
 }

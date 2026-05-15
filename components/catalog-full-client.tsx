@@ -10,5 +10,5 @@ interface CatalogFullClientProps {
 }
 
 export function CatalogFullClient(props: CatalogFullClientProps) {
-  return <StorefrontClient {...props} mode="catalog" />;
+  return <StorefrontClient {...props} mode="catalog" heroImages={[]} />;
 }
