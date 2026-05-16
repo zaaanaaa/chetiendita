@@ -226,7 +226,11 @@ export function StorefrontClient({ initialProducts, tags, user, mode, heroImages
   const displayProducts = mode === "home" ? filteredProducts.slice(0, LANDING_LIMIT) : filteredProducts;
   const hasMore = mode === "home" && filteredProducts.length > LANDING_LIMIT;
   const activeFilters = Number(query.trim().length > 0) + Number(Boolean(selectedTag));
-  const highlightedTags = tags.slice(0, 8);
+  const highlightedTags = useMemo(() => {
+    const discountTag = tags.find((tag) => tag.name === "descuento");
+    const remainingTags = tags.filter((tag) => tag.name !== "descuento");
+    return discountTag ? [discountTag, ...remainingTags].slice(0, 8) : tags.slice(0, 8);
+  }, [tags]);
 
   useEffect(() => {
     const anyOpen = loginOpen || cartOpen || checkoutOpen || !!selectedProduct || heroEditorOpen;
@@ -607,7 +611,18 @@ export function StorefrontClient({ initialProducts, tags, user, mode, heroImages
       </main>
 
       <LoginPanel open={loginOpen} onClose={() => setLoginOpen(false)} />
-      <CartDrawer open={cartOpen} onClose={() => setCartOpen(false)} onCheckout={() => setCheckoutOpen(true)} />
+      <CartDrawer
+        open={cartOpen}
+        onClose={() => setCartOpen(false)}
+        onCheckout={() => {
+          if (!user) {
+            setLoginOpen(true);
+            return;
+          }
+          setCheckoutOpen(true);
+        }}
+        checkoutLabel={user ? "Finalizar compra" : "Ingresar para comprar"}
+      />
       <CheckoutModal open={checkoutOpen} onClose={() => setCheckoutOpen(false)} />
       {selectedProduct ? <ProductModal product={selectedProduct} onClose={() => setSelectedProduct(null)} /> : null}
       {heroEditorOpen ? (

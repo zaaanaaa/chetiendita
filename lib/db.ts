@@ -13,6 +13,7 @@ import {
   OrderUpdateInput,
   Product,
   ProductInput,
+  ProductVideo,
   ProductVariantGroup,
   SessionUser,
   Tag,
@@ -34,6 +35,8 @@ type ProductRow = {
   discount_price: number | null;
   image: string;
   images: string | null;
+  videos: string | null;
+  video: string | null;
   featured: number;
   sold_count: number;
   created_at: string;
@@ -124,6 +127,8 @@ function initializeDatabase(db: InstanceType<typeof Database>) {
       discount_price INTEGER,
       image TEXT NOT NULL,
       images TEXT NOT NULL DEFAULT '[]',
+      videos TEXT NOT NULL DEFAULT '[]',
+      video TEXT,
       featured INTEGER NOT NULL DEFAULT 0,
       sold_count INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -189,8 +194,8 @@ function initializeDatabase(db: InstanceType<typeof Database>) {
   if (productCount.count === 0) {
     const insertProduct = db.prepare(
       `
-      INSERT INTO products(name, description, price, discount_price, image, images, featured, variants, variant_groups)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO products(name, description, price, discount_price, image, images, videos, video, featured, variants, variant_groups)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
     );
     const insertTag = db.prepare("INSERT OR IGNORE INTO tags(name) VALUES (?)");
@@ -209,6 +214,8 @@ function initializeDatabase(db: InstanceType<typeof Database>) {
           null,
           item.image,
           imagesJson,
+          JSON.stringify([]),
+          null,
           item.featured ? 1 : 0,
           JSON.stringify([]),
           JSON.stringify([]),
@@ -262,6 +269,12 @@ function migrateDatabase(db: InstanceType<typeof Database>) {
   if (!hasColumn(db, "products", "images")) {
     db.exec("ALTER TABLE products ADD COLUMN images TEXT NOT NULL DEFAULT '[]'");
   }
+  if (!hasColumn(db, "products", "videos")) {
+    db.exec("ALTER TABLE products ADD COLUMN videos TEXT NOT NULL DEFAULT '[]'");
+  }
+  if (!hasColumn(db, "products", "video")) {
+    db.exec("ALTER TABLE products ADD COLUMN video TEXT");
+  }
 
   if (!hasColumn(db, "orders", "user_id")) {
     db.exec("ALTER TABLE orders ADD COLUMN user_id INTEGER");
@@ -277,25 +290,30 @@ function migrateDatabase(db: InstanceType<typeof Database>) {
     );
   `);
 
-  const productRows = db.prepare("SELECT id, image, images, variants, variant_groups FROM products").all() as Array<{
+  const productRows = db.prepare("SELECT id, image, images, videos, video, variants, variant_groups FROM products").all() as Array<{
     id: number;
     image: string;
     images: string | null;
+    videos: string | null;
+    video: string | null;
     variants: string | null;
     variant_groups: string | null;
   }>;
 
   const updateProductArrays = db.prepare(
-    "UPDATE products SET image = ?, images = ?, variants = ?, variant_groups = ? WHERE id = ?",
+    "UPDATE products SET image = ?, images = ?, videos = ?, video = ?, variants = ?, variant_groups = ? WHERE id = ?",
   );
 
   const productMigration = db.transaction(() => {
     for (const row of productRows) {
       const images = parseImages(row.images, row.image);
+      const videos = parseVideos(row.videos, row.video);
       const variantGroups = parseVariantGroups(row.variant_groups, row.variants);
       updateProductArrays.run(
         images[0] || row.image,
         JSON.stringify(images),
+        JSON.stringify(videos),
+        videos[0]?.url || null,
         JSON.stringify(flattenVariantGroups(variantGroups)),
         JSON.stringify(variantGroups),
         row.id,
@@ -368,6 +386,44 @@ function parseImages(rawImages: string | null, fallbackImage: string): string[] 
   return fallbackImage ? [fallbackImage] : [];
 }
 
+function parseVideos(rawVideos: string | null, fallbackVideo: string | null): ProductVideo[] {
+  if (rawVideos) {
+    try {
+      const parsed = JSON.parse(rawVideos);
+      if (Array.isArray(parsed)) {
+        const normalized = parsed
+          .map((video: unknown) => {
+            if (typeof video === "string" && video.trim()) {
+              return { url: video, label: "Video" };
+            }
+            if (
+              typeof video === "object" &&
+              video !== null &&
+              "url" in video &&
+              typeof (video as { url: unknown }).url === "string" &&
+              (video as { url: string }).url.trim()
+            ) {
+              const typedVideo = video as { url: string; label?: string };
+              return {
+                url: typedVideo.url,
+                label: (typedVideo.label || "").trim() || "Video",
+              };
+            }
+            return null;
+          })
+          .filter((video): video is ProductVideo => Boolean(video));
+        if (normalized.length > 0) {
+          return normalized;
+        }
+      }
+    } catch {
+      // ignore legacy format
+    }
+  }
+
+  return fallbackVideo ? [{ url: fallbackVideo, label: "Video" }] : [];
+}
+
 function parseLegacyVariants(raw: string | null): string[] {
   if (!raw) {
     return [];
@@ -436,6 +492,7 @@ function getTagsForProduct(productId: number) {
 
 function mapProduct(row: ProductRow): Product {
   const images = parseImages(row.images, row.image);
+  const videos = parseVideos(row.videos, row.video);
   const variantGroups = parseVariantGroups(row.variant_groups, row.variants);
 
   return {
@@ -446,6 +503,8 @@ function mapProduct(row: ProductRow): Product {
     discountPrice: row.discount_price ?? null,
     image: images[0] || row.image,
     images,
+    videos,
+    video: videos[0]?.url ?? null,
     featured: Boolean(row.featured),
     soldCount: row.sold_count,
     createdAt: row.created_at,
@@ -531,6 +590,32 @@ export function createUser(
     .get(Number(result.lastInsertRowid)) as UserRow;
 
   return mapUser(row);
+}
+
+export function generateUniqueUsernameFromEmail(email: string) {
+  const fallback = "cliente";
+  const [rawBase] = email.toLowerCase().split("@");
+  const base =
+    rawBase
+      ?.replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 24) || fallback;
+
+  let candidate = base;
+  let attempt = 1;
+
+  while (true) {
+    const existing = db
+      .prepare("SELECT id FROM users WHERE username = ?")
+      .get(candidate) as { id: number } | undefined;
+
+    if (!existing) {
+      return candidate;
+    }
+
+    attempt += 1;
+    candidate = `${base}-${attempt}`;
+  }
 }
 
 export function createManagedUser(input: UserInput) {
@@ -759,8 +844,8 @@ export function createProduct(input: ProductInput) {
   const result = db
     .prepare(
       `
-      INSERT INTO products(name, description, price, discount_price, image, images, featured, variants, variant_groups)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO products(name, description, price, discount_price, image, images, videos, video, featured, variants, variant_groups)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
     )
     .run(
@@ -770,6 +855,8 @@ export function createProduct(input: ProductInput) {
       input.discountPrice,
       input.image,
       imagesJson,
+      JSON.stringify(input.videos || []),
+      input.video,
       input.featured ? 1 : 0,
       variantsJson,
       variantGroupsJson,
@@ -787,7 +874,7 @@ export function updateProduct(productId: number, input: ProductInput) {
   db.prepare(
     `
     UPDATE products
-    SET name = ?, description = ?, price = ?, discount_price = ?, image = ?, images = ?, featured = ?, variants = ?, variant_groups = ?
+    SET name = ?, description = ?, price = ?, discount_price = ?, image = ?, images = ?, videos = ?, video = ?, featured = ?, variants = ?, variant_groups = ?
     WHERE id = ?
     `,
   ).run(
@@ -797,6 +884,8 @@ export function updateProduct(productId: number, input: ProductInput) {
     input.discountPrice,
     input.image,
     JSON.stringify(input.images),
+    JSON.stringify(input.videos || []),
+    input.video,
     input.featured ? 1 : 0,
     variantsJson,
     variantGroupsJson,

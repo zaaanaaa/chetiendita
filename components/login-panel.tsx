@@ -15,6 +15,7 @@ const MESSAGES: Record<string, string> = {
   invalid_input: "Usuario y contrasena deben tener al menos 4 caracteres.",
   invalid_email: "Ingresa un email valido.",
   invalid_gmail: "La cuenta debe registrarse con un Gmail valido.",
+  invalid_phone: "Ingresa un telefono valido.",
   invalid_code: "El codigo debe tener 6 numeros.",
   expired_code: "El codigo vencio. Pedi uno nuevo.",
   username_or_email_exists: "Ese usuario o email ya existe.",
@@ -124,8 +125,9 @@ export function LoginPanel({ open, onClose }: LoginPanelProps) {
                 password: String(formData.get("password") || ""),
               }
             : {
-                username: String(formData.get("username") || ""),
+                name: String(formData.get("name") || ""),
                 email: String(formData.get("email") || ""),
+                phone: String(formData.get("phone") || ""),
                 password: String(formData.get("password") || ""),
               };
 
@@ -215,8 +217,9 @@ export function LoginPanel({ open, onClose }: LoginPanelProps) {
 
           {mode === "register" ? (
             <>
-              <input name="username" type="text" placeholder="Usuario" required minLength={4} />
+              <input name="name" type="text" placeholder="Nombre y apellido" required minLength={2} />
               <input name="email" type="email" placeholder="tuusuario@gmail.com" required />
+              <input name="phone" type="tel" placeholder="Telefono" required minLength={8} />
               <input
                 name="password"
                 type="password"

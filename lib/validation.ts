@@ -4,6 +4,7 @@ import {
   OrderStatus,
   OrderUpdateInput,
   ProductInput,
+  ProductVideo,
   ProductVariantGroup,
   UserInput,
   UserRole,
@@ -92,6 +93,44 @@ export function validateRegistrationInput(username: string, email: string, passw
   };
 }
 
+export function validatePublicRegistrationInput(
+  name: string,
+  email: string,
+  phone: string,
+  password: string,
+) {
+  const cleanName = name.trim();
+  const cleanEmail = email.trim().toLowerCase();
+  const cleanPhone = phone.trim();
+  const cleanPassword = password.trim();
+
+  if (cleanName.length < 2 || cleanPassword.length < 4) {
+    return { ok: false as const, error: "invalid_input" };
+  }
+
+  const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailPattern.test(cleanEmail)) {
+    return { ok: false as const, error: "invalid_email" };
+  }
+
+  if (!cleanEmail.endsWith("@gmail.com")) {
+    return { ok: false as const, error: "invalid_gmail" };
+  }
+
+  const digits = cleanPhone.replace(/\D/g, "");
+  if (digits.length < 8) {
+    return { ok: false as const, error: "invalid_phone" };
+  }
+
+  return {
+    ok: true as const,
+    name: cleanName,
+    email: cleanEmail,
+    phone: cleanPhone,
+    password: cleanPassword,
+  };
+}
+
 export function validateRecoveryEmail(email: string) {
   const cleanEmail = email.trim().toLowerCase();
   const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -147,6 +186,52 @@ function isValidImageValue(value: string) {
   }
 }
 
+function normalizeYouTubeUrl(value: string) {
+  if (!value) {
+    return null;
+  }
+
+  try {
+    const url = new URL(value);
+    const hostname = url.hostname.replace(/^www\./, "");
+
+    if (hostname === "youtube.com" || hostname === "m.youtube.com") {
+      const videoId = url.searchParams.get("v");
+      return videoId ? `https://www.youtube.com/watch?v=${videoId}` : null;
+    }
+
+    if (hostname === "youtu.be") {
+      const videoId = url.pathname.split("/").filter(Boolean)[0];
+      return videoId ? `https://www.youtube.com/watch?v=${videoId}` : null;
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+function isValidVideoValue(value: string) {
+  if (!value) {
+    return false;
+  }
+
+  if (value.startsWith("data:video/")) {
+    return true;
+  }
+
+  if (normalizeYouTubeUrl(value)) {
+    return true;
+  }
+
+  try {
+    const url = new URL(value);
+    return ["http:", "https:"].includes(url.protocol);
+  } catch {
+    return false;
+  }
+}
+
 function normalizeImages(images: string[], fallbackImage: string) {
   const normalized = Array.from(
     new Set(
@@ -165,6 +250,60 @@ function normalizeImages(images: string[], fallbackImage: string) {
   return isValidImageValue(trimmedFallback) ? [trimmedFallback] : [];
 }
 
+function normalizeVideoLabel(value: string, fallbackUrl: string) {
+  const trimmed = value.trim();
+  if (trimmed) {
+    return trimmed;
+  }
+
+  if (fallbackUrl.startsWith("data:video/")) {
+    return "Video";
+  }
+
+  try {
+    const url = new URL(fallbackUrl);
+    const lastSegment = url.pathname.split("/").filter(Boolean).pop();
+    return lastSegment || "Video";
+  } catch {
+    return "Video";
+  }
+}
+
+function normalizeVideos(videos: ProductVideo[], fallbackVideo: string) {
+  const seen = new Set<string>();
+  const normalized: ProductVideo[] = [];
+
+  for (const video of videos || []) {
+    const rawUrl = (video?.url || "").trim();
+    if (!rawUrl) {
+      continue;
+    }
+    const normalizedUrl = normalizeYouTubeUrl(rawUrl) || rawUrl;
+    if (!isValidVideoValue(normalizedUrl) || seen.has(normalizedUrl)) {
+      continue;
+    }
+    seen.add(normalizedUrl);
+    normalized.push({
+      url: normalizedUrl,
+      label: normalizeVideoLabel(video?.label || "", normalizedUrl),
+    });
+  }
+
+  if (normalized.length > 0) {
+    return normalized;
+  }
+
+  const trimmedFallback = fallbackVideo.trim();
+  if (!trimmedFallback) {
+    return [];
+  }
+
+  const normalizedFallback = normalizeYouTubeUrl(trimmedFallback) || trimmedFallback;
+  return isValidVideoValue(normalizedFallback)
+    ? [{ url: normalizedFallback, label: normalizeVideoLabel("", normalizedFallback) }]
+    : [];
+}
+
 export function validateHeroSettings(input: HeroSettings) {
   const images = normalizeImages(input.images || [], "");
   return {
@@ -178,6 +317,7 @@ export function validateHeroSettings(input: HeroSettings) {
 export function validateProductInput(input: ProductInput) {
   const variantGroups = normalizeVariantGroups(input.variantGroups, input.variants);
   const images = normalizeImages(input.images || [], input.image || "");
+  const videos = normalizeVideos(input.videos || [], input.video || "");
   const normalizedTags = Array.from(new Set(input.tags.map(normalizeTagName).filter(Boolean)));
   const normalizedDiscountPrice =
     input.discountPrice === null || input.discountPrice === undefined || input.discountPrice === 0
@@ -197,6 +337,8 @@ export function validateProductInput(input: ProductInput) {
     discountPrice: normalizedDiscountPrice,
     image: images[0] || "",
     images,
+    videos,
+    video: videos[0]?.url || null,
     featured: Boolean(input.featured) || hasDiscount,
     tags,
     variants: flattenVariantGroups(variantGroups),
@@ -218,6 +360,10 @@ export function validateProductInput(input: ProductInput) {
       payload.discountPrice >= payload.price)
   ) {
     return { ok: false as const, error: "invalid_discount_price" };
+  }
+
+  if (((input.video || "").trim() || (input.videos || []).some((video) => video.url?.trim())) && payload.videos.length === 0) {
+    return { ok: false as const, error: "invalid_video" };
   }
 
   return { ok: true as const, product: payload };

@@ -6,6 +6,7 @@ interface CartDrawerProps {
   open: boolean;
   onClose: () => void;
   onCheckout: () => void;
+  checkoutLabel?: string;
 }
 
 function formatCurrency(value: number) {
@@ -16,7 +17,12 @@ function formatCurrency(value: number) {
   }).format(value);
 }
 
-export function CartDrawer({ open, onClose, onCheckout }: CartDrawerProps) {
+export function CartDrawer({
+  open,
+  onClose,
+  onCheckout,
+  checkoutLabel = "Finalizar compra",
+}: CartDrawerProps) {
   const { items, totalItems, totalPrice, removeItem, updateQuantity, clearCart } = useCart();
 
   return (
@@ -118,7 +124,7 @@ export function CartDrawer({ open, onClose, onCheckout }: CartDrawerProps) {
                   onCheckout();
                 }}
               >
-                Finalizar compra
+                {checkoutLabel}
               </button>
             </div>
           </>

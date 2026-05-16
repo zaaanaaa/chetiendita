@@ -11,6 +11,10 @@ interface ProductModalProps {
   onClose: () => void;
 }
 
+type ProductMediaItem =
+  | { type: "image"; src: string }
+  | { type: "video"; src: string; isYouTube: boolean };
+
 function formatCurrency(value: number) {
   return new Intl.NumberFormat("es-AR", {
     style: "currency",
@@ -31,6 +35,35 @@ function getDiscountPercentage(product: Product) {
   return Math.round(((product.price - product.discountPrice) / product.price) * 100);
 }
 
+function getEmbeddedVideoUrl(value: string | null) {
+  if (!value) {
+    return null;
+  }
+
+  if (value.startsWith("data:video/")) {
+    return value;
+  }
+
+  try {
+    const url = new URL(value);
+    const hostname = url.hostname.replace(/^www\./, "");
+
+    if (hostname === "youtube.com" || hostname === "m.youtube.com") {
+      const videoId = url.searchParams.get("v");
+      return videoId ? `https://www.youtube.com/embed/${videoId}` : null;
+    }
+
+    if (hostname === "youtu.be") {
+      const videoId = url.pathname.split("/").filter(Boolean)[0];
+      return videoId ? `https://www.youtube.com/embed/${videoId}` : null;
+    }
+
+    return value;
+  } catch {
+    return null;
+  }
+}
+
 export function ProductModal({ product, onClose }: ProductModalProps) {
   const { addItem } = useCart();
   const router = useRouter();
@@ -41,6 +74,27 @@ export function ProductModal({ product, onClose }: ProductModalProps) {
 
   const effectivePrice = getEffectivePrice(product);
   const discountPercentage = getDiscountPercentage(product);
+  const mediaItems = useMemo<ProductMediaItem[]>(() => {
+    const items: ProductMediaItem[] = product.images.map((image) => ({ type: "image", src: image }));
+    const productVideos =
+      product.videos?.length
+        ? product.videos.map((video) => video.url)
+        : product.video
+          ? [product.video]
+          : [];
+    for (const video of productVideos) {
+      const embeddedVideoUrl = getEmbeddedVideoUrl(video);
+      if (embeddedVideoUrl) {
+        items.push({
+          type: "video",
+          src: embeddedVideoUrl,
+          isYouTube: embeddedVideoUrl.includes("youtube.com/embed/"),
+        });
+      }
+    }
+    return items;
+  }, [product.images, product.video, product.videos]);
+  const selectedMedia = mediaItems[selectedImageIndex] || mediaItems[0] || { type: "image", src: product.image };
 
   useEffect(() => {
     const defaults = Object.fromEntries(
@@ -71,7 +125,7 @@ export function ProductModal({ product, onClose }: ProductModalProps) {
       productName: product.name,
       variant: variantLabel,
       unitPrice: effectivePrice,
-      image: product.images[selectedImageIndex] || product.image,
+      image: selectedMedia.type === "image" ? selectedMedia.src : product.images[0] || product.image,
       quantity,
     });
     setAdded(true);
@@ -99,14 +153,33 @@ export function ProductModal({ product, onClose }: ProductModalProps) {
         <div className="product-modal-layout">
           <div className="product-modal-image">
             <div className="product-modal-media-frame">
-              <img
-                src={product.images[selectedImageIndex] || product.image}
-                alt={product.name}
-                className="product-modal-media-tag"
-              />
+              {selectedMedia.type === "video" ? (
+                selectedMedia.isYouTube ? (
+                  <iframe
+                    src={selectedMedia.src}
+                    title={`${product.name} video`}
+                    className="product-video-frame product-video-frame-main"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                    allowFullScreen
+                  />
+                ) : (
+                  <video
+                    src={selectedMedia.src}
+                    className="product-video-frame product-video-frame-main"
+                    controls
+                    playsInline
+                  />
+                )
+              ) : (
+                <img
+                  src={selectedMedia.src}
+                  alt={product.name}
+                  className="product-modal-media-tag"
+                />
+              )}
             </div>
 
-            {product.images.length > 1 ? (
+            {mediaItems.length > 1 ? (
               <>
                 <div className="product-gallery-controls">
                   <button
@@ -114,7 +187,7 @@ export function ProductModal({ product, onClose }: ProductModalProps) {
                     className="gallery-nav-btn"
                     onClick={() =>
                       setSelectedImageIndex((current) =>
-                        current === 0 ? product.images.length - 1 : current - 1,
+                        current === 0 ? mediaItems.length - 1 : current - 1,
                       )
                     }
                   >
@@ -124,7 +197,7 @@ export function ProductModal({ product, onClose }: ProductModalProps) {
                     type="button"
                     className="gallery-nav-btn"
                     onClick={() =>
-                      setSelectedImageIndex((current) => (current + 1) % product.images.length)
+                      setSelectedImageIndex((current) => (current + 1) % mediaItems.length)
                     }
                   >
                     ›
@@ -132,14 +205,26 @@ export function ProductModal({ product, onClose }: ProductModalProps) {
                 </div>
 
                 <div className="product-gallery-strip">
-                  {product.images.map((image, index) => (
+                  {mediaItems.map((item, index) => (
                     <button
-                      key={`${image}-${index}`}
+                      key={`${item.type}-${item.src}-${index}`}
                       type="button"
                       className={`gallery-thumb ${selectedImageIndex === index ? "active" : ""}`}
                       onClick={() => setSelectedImageIndex(index)}
+                      aria-label={item.type === "video" ? `Ver video de ${product.name}` : `Ver imagen ${index + 1}`}
                     >
-                      <img src={image} alt={`${product.name} ${index + 1}`} className="gallery-thumb-tag" />
+                      {item.type === "video" ? (
+                        <span className="gallery-thumb-video">
+                          <span className="gallery-thumb-play">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                              <path d="M8 5v14l11-7z" />
+                            </svg>
+                          </span>
+                          <span className="gallery-thumb-video-label">Video</span>
+                        </span>
+                      ) : (
+                        <img src={item.src} alt={`${product.name} ${index + 1}`} className="gallery-thumb-tag" />
+                      )}
                     </button>
                   ))}
                 </div>

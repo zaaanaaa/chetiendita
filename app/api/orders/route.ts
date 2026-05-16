@@ -8,6 +8,10 @@ import { validateOrderInput } from "@/lib/validation";
 
 export async function POST(request: Request) {
   const user = await getCurrentUser();
+  if (!user) {
+    return jsonError("unauthorized", 401);
+  }
+
   const body = (await request.json().catch(() => null)) as OrderInput | null;
   if (!body) {
     return jsonError("missing_fields", 400);
@@ -19,9 +23,9 @@ export async function POST(request: Request) {
   }
 
   const order = createOrder({
-    userId: user?.id ?? null,
-    customerName: validation.order.customerName || user?.name || user?.username || "Cliente",
-    customerPhone: validation.order.customerPhone || user?.phone || "",
+    userId: user.id,
+    customerName: validation.order.customerName || user.name || user.username || "Cliente",
+    customerPhone: validation.order.customerPhone || user.phone || "",
     notes: validation.order.notes,
     items: validation.order.items,
     total: validation.order.total,

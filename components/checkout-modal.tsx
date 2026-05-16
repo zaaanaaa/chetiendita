@@ -62,6 +62,11 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
           }),
         });
 
+        if (response.status === 401) {
+          setMessage("Necesitás iniciar sesión para finalizar la compra.");
+          return;
+        }
+
         if (!response.ok) {
           setMessage("No se pudo procesar tu pedido. Intentá de nuevo.");
           return;

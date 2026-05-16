@@ -4,6 +4,7 @@ import { ChangeEvent, FormEvent, useEffect, useMemo, useState, useTransition } f
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 
+import { CartDrawer } from "@/components/cart-drawer";
 import {
   Order,
   OrderItemInput,
@@ -11,6 +12,7 @@ import {
   OrderUpdateInput,
   Product,
   ProductInput,
+  ProductVideo,
   ProductVariantGroup,
   Tag,
   User,
@@ -26,7 +28,6 @@ interface AdminClientProps {
 
 type InventorySort = "featured" | "bestselling" | "newest";
 type AdminTab = "inventory" | "orders" | "users";
-type ImageMode = "url" | "upload";
 
 const ERROR_MESSAGES: Record<string, string> = {
   name_required: "La etiqueta no puede estar vacia.",
@@ -35,6 +36,7 @@ const ERROR_MESSAGES: Record<string, string> = {
   invalid_price: "El precio debe ser mayor a cero.",
   invalid_discount_price: "El precio con descuento debe ser menor al precio normal.",
   invalid_image_url: "La imagen debe ser una URL válida o un archivo subido.",
+  invalid_video: "El video debe ser una URL válida de YouTube, un enlace directo o un archivo subido.",
   missing_customer_name: "El pedido necesita un nombre de cliente.",
   empty_cart: "El pedido tiene que tener al menos un item.",
   invalid_item: "Revisa los items del pedido.",
@@ -53,6 +55,8 @@ const EMPTY_FORM: ProductInput = {
   discountPrice: null,
   image: "",
   images: [],
+  videos: [],
+  video: null,
   featured: false,
   tags: [],
   variants: [],
@@ -152,6 +156,17 @@ function createOrderItemFromProduct(product: Product): OrderItemInput {
   };
 }
 
+function moveArrayItem<T>(items: T[], fromIndex: number, toIndex: number) {
+  if (toIndex < 0 || toIndex >= items.length || fromIndex === toIndex) {
+    return items;
+  }
+
+  const nextItems = [...items];
+  const [movedItem] = nextItems.splice(fromIndex, 1);
+  nextItems.splice(toIndex, 0, movedItem);
+  return nextItems;
+}
+
 export function AdminClient({ user, initialProducts, initialTags }: AdminClientProps) {
   const router = useRouter();
   const [products, setProducts] = useState(initialProducts);
@@ -162,7 +177,6 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
   const [editingId, setEditingId] = useState<number | null>(null);
   const [productForm, setProductForm] = useState<ProductInput>(EMPTY_FORM);
   const [variantOptionDrafts, setVariantOptionDrafts] = useState<string[]>([]);
-  const [imageMode, setImageMode] = useState<ImageMode>("url");
   const [tagName, setTagName] = useState("");
   const [tagMessage, setTagMessage] = useState("");
   const [productMessage, setProductMessage] = useState("");
@@ -175,6 +189,7 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
   const [editorOpen, setEditorOpen] = useState(false);
   const [tagModalOpen, setTagModalOpen] = useState(false);
   const [tagPickerOpen, setTagPickerOpen] = useState(false);
+  const [mediaOrderOpen, setMediaOrderOpen] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [orderDraft, setOrderDraft] = useState<OrderUpdateInput | null>(null);
   const [selectedUserDetail, setSelectedUserDetail] = useState<UserWithOrders | null>(null);
@@ -182,14 +197,18 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
   const [userEditingId, setUserEditingId] = useState<number | null>(null);
   const [userForm, setUserForm] = useState<UserInput>(EMPTY_USER_FORM);
   const [urlImageDraft, setUrlImageDraft] = useState("");
+  const [urlVideoLabelDraft, setUrlVideoLabelDraft] = useState("");
+  const [urlVideoDraft, setUrlVideoDraft] = useState("");
+  const [cartOpen, setCartOpen] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [productPickerOpen, setProductPickerOpen] = useState(false);
   const [orderProductSearch, setOrderProductSearch] = useState("");
+  const [expandedOrderId, setExpandedOrderId] = useState<number | null>(null);
   const [isPending, startTransition] = useTransition();
 
   useEffect(() => {
     const anyModalOpen =
-      editorOpen || tagModalOpen || tagPickerOpen || !!selectedOrder || userEditorOpen || productPickerOpen;
+      cartOpen || editorOpen || tagModalOpen || tagPickerOpen || mediaOrderOpen || !!selectedOrder || userEditorOpen || productPickerOpen;
     if (anyModalOpen) {
       document.body.classList.add("modal-open");
     } else {
@@ -198,7 +217,7 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
     return () => {
       document.body.classList.remove("modal-open");
     };
-  }, [editorOpen, tagModalOpen, tagPickerOpen, selectedOrder, userEditorOpen, productPickerOpen]);
+  }, [cartOpen, editorOpen, tagModalOpen, tagPickerOpen, mediaOrderOpen, selectedOrder, userEditorOpen, productPickerOpen]);
 
   useEffect(() => {
     if (activeTab === "orders") {
@@ -312,9 +331,11 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
     setProductMessage("");
     setTagMessage("");
     setUrlImageDraft("");
-    setImageMode("url");
+    setUrlVideoLabelDraft("");
+    setUrlVideoDraft("");
     setEditorOpen(false);
     setTagPickerOpen(false);
+    setMediaOrderOpen(false);
   }
 
   function openCreateProductModal() {
@@ -324,9 +345,11 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
     setProductMessage("");
     setTagMessage("");
     setUrlImageDraft("");
-    setImageMode("url");
+    setUrlVideoLabelDraft("");
+    setUrlVideoDraft("");
     setEditorOpen(true);
     setTagPickerOpen(false);
+    setMediaOrderOpen(false);
   }
 
   function toggleTag(tagNameToToggle: string) {
@@ -350,13 +373,16 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
       discountPrice: product.discountPrice,
       image: product.image,
       images: product.images,
+      videos: product.videos || [],
+      video: product.video,
       featured: product.featured,
       tags: product.tags,
       variants: product.variants || [],
       variantGroups: product.variantGroups || [],
     });
     setVariantOptionDrafts((product.variantGroups || []).map(() => ""));
-    setImageMode(product.images.some((image) => image.startsWith("data:image/")) ? "upload" : "url");
+    setUrlVideoLabelDraft("");
+    setUrlVideoDraft("");
   }
 
   function addVariantGroup() {
@@ -424,16 +450,6 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
     }));
   }
 
-  function switchImageMode(nextMode: ImageMode) {
-    setImageMode(nextMode);
-    setProductForm((current) => ({
-      ...current,
-      images: [],
-      image: "",
-    }));
-    setUrlImageDraft("");
-  }
-
   function addImageUrl() {
     const draft = urlImageDraft.trim();
     if (!draft) {
@@ -454,6 +470,18 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
   function removeImage(index: number) {
     setProductForm((current) => {
       const images = (current.images || []).filter((_, currentIndex) => currentIndex !== index);
+      return {
+        ...current,
+        images,
+        image: images[0] || "",
+      };
+    });
+  }
+
+  function moveImage(index: number, direction: "up" | "down") {
+    setProductForm((current) => {
+      const nextIndex = direction === "up" ? index - 1 : index + 1;
+      const images = moveArrayItem(current.images || [], index, nextIndex);
       return {
         ...current,
         images,
@@ -486,6 +514,94 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
           image: images[0] || "",
         };
       });
+    });
+  }
+
+  function handleVideoUpload(event: ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(event.target.files || []);
+    if (files.length === 0) {
+      return;
+    }
+
+    Promise.all(
+      files.map(
+        (file) =>
+          new Promise<string>((resolve) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : "");
+            reader.readAsDataURL(file);
+          }),
+      ),
+    ).then((encodedVideos) => {
+      setProductForm((current) => {
+        const existingUrls = new Set((current.videos || []).map((video) => video.url));
+        const videos = [
+          ...(current.videos || []),
+          ...encodedVideos
+            .filter(Boolean)
+            .filter((encodedVideo) => !existingUrls.has(encodedVideo))
+            .map((encodedVideo, index) => ({
+              url: encodedVideo,
+              label: files[index]?.name || "Video",
+            })),
+        ];
+        return {
+          ...current,
+          videos,
+          video: videos[0]?.url || null,
+        };
+      });
+    });
+  }
+
+  function saveVideoUrl() {
+    const draft = urlVideoDraft.trim();
+    if (!draft) {
+      return;
+    }
+
+    setProductForm((current) => {
+      const normalizedUrl = draft;
+      const alreadyExists = (current.videos || []).some((video) => video.url === normalizedUrl);
+      const videos = alreadyExists
+        ? current.videos || []
+        : [
+            ...(current.videos || []),
+            {
+              url: normalizedUrl,
+              label: urlVideoLabelDraft.trim() || `Video ${((current.videos || []).length || 0) + 1}`,
+            },
+          ];
+      return {
+        ...current,
+        videos,
+        video: videos[0]?.url || null,
+      };
+    });
+    setUrlVideoLabelDraft("");
+    setUrlVideoDraft("");
+  }
+
+  function removeVideo(index: number) {
+    setProductForm((current) => {
+      const videos = (current.videos || []).filter((_, currentIndex) => currentIndex !== index);
+      return {
+        ...current,
+        videos,
+        video: videos[0]?.url || null,
+      };
+    });
+  }
+
+  function moveVideo(index: number, direction: "up" | "down") {
+    setProductForm((current) => {
+      const nextIndex = direction === "up" ? index - 1 : index + 1;
+      const videos = moveArrayItem(current.videos || [], index, nextIndex);
+      return {
+        ...current,
+        videos,
+        video: videos[0]?.url || null,
+      };
     });
   }
 
@@ -611,6 +727,10 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
         ? { ...current, items: current.items.filter((_, currentIndex) => currentIndex !== index) }
         : current,
     );
+  }
+
+  function toggleExpandedOrder(orderId: number) {
+    setExpandedOrderId((current) => (current === orderId ? null : orderId));
   }
 
   function saveOrderChanges(nextStatus?: OrderStatus) {
@@ -749,12 +869,39 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
             </div>
           </div>
 
-          <aside className="header-sidebar">
+          <button
+            className={`sidebar-toggle admin-sidebar-toggle ${mobileNavOpen ? "active" : ""}`}
+            type="button"
+            onClick={() => setMobileNavOpen((current) => !current)}
+            aria-label="Abrir panel admin"
+            aria-expanded={mobileNavOpen}
+          >
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <line x1="3" y1="6" x2="21" y2="6" />
+              <line x1="3" y1="12" x2="21" y2="12" />
+              <line x1="3" y1="18" x2="21" y2="18" />
+            </svg>
+          </button>
+
+          <aside className={`header-sidebar admin-header-sidebar ${mobileNavOpen ? "open" : ""}`}>
             <span className="header-sidebar-user">{user.name}</span>
+            <p className="admin-sidebar-role">Administrador</p>
             <div className="header-sidebar-actions">
-              <Link href="/" className="sidebar-link">Ver tienda</Link>
-              <Link href="/pedidos" className="sidebar-link">Mis pedidos</Link>
-              <button className="sidebar-link" type="button" onClick={logout}>Salir</button>
+              <Link href="/admin" className="sidebar-link" onClick={() => setMobileNavOpen(false)}>Panel</Link>
+              <Link href="/pedidos" className="sidebar-link" onClick={() => setMobileNavOpen(false)}>Mis pedidos</Link>
+              <button
+                className="sidebar-cart"
+                type="button"
+                onClick={() => {
+                  setMobileNavOpen(false);
+                  setCartOpen(true);
+                }}
+                aria-label="Ver carrito"
+              >
+                <span>Carrito</span>
+                <strong>Ver</strong>
+              </button>
+              <button className="sidebar-link" type="button" onClick={() => { setMobileNavOpen(false); logout(); }}>Salir</button>
             </div>
           </aside>
         </div>
@@ -862,7 +1009,14 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
               ) : (
                 <div className="orders-list">
                   {pendingOrders.map((order) => (
-                    <article key={order.id} className="order-card" onClick={() => openOrderEditor(order)} role="button" tabIndex={0} onKeyDown={(e) => e.key === "Enter" && openOrderEditor(order)}>
+                    <article
+                      key={order.id}
+                      className={`order-card order-card-compact ${expandedOrderId === order.id ? "order-card-expanded" : ""}`}
+                      onClick={() => toggleExpandedOrder(order.id)}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(e) => e.key === "Enter" && toggleExpandedOrder(order.id)}
+                    >
                       <div className="order-card-main">
                         <div className="order-card-header">
                           <h3>Pedido #{order.id}</h3>
@@ -874,17 +1028,45 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
                       <div className="order-card-total">
                         <span>{order.items.length} item(s)</span>
                         <strong>{formatCurrency(order.total)}</strong>
-                        <button
-                          className="danger-button order-delete-btn"
-                          type="button"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            removeOrder(order.id);
-                          }}
-                        >
-                          Eliminar
-                        </button>
                       </div>
+                      {expandedOrderId === order.id ? (
+                        <div className="order-card-inline-detail">
+                          <div className="order-history-items order-history-items-compact">
+                            {order.items.map((item) => (
+                              <div key={item.id} className="order-history-item order-history-item-compact">
+                                <div className="order-item-img" style={{ backgroundImage: `url(${item.image})` }} />
+                                <div>
+                                  <h4>{item.productName}</h4>
+                                  {item.variant ? <p>{item.variant}</p> : null}
+                                </div>
+                                <span>{item.quantity}x</span>
+                              </div>
+                            ))}
+                          </div>
+                          <div className="order-card-actions-compact">
+                            <button
+                              className="secondary-button secondary-button-sm"
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                openOrderEditor(order);
+                              }}
+                            >
+                              Editar
+                            </button>
+                            <button
+                              className="danger-button danger-button-sm"
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                removeOrder(order.id);
+                              }}
+                            >
+                              Eliminar
+                            </button>
+                          </div>
+                        </div>
+                      ) : null}
                     </article>
                   ))}
                 </div>
@@ -904,7 +1086,14 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
               ) : (
                 <div className="orders-list">
                   {readyOrders.map((order) => (
-                    <article key={order.id} className="order-card" onClick={() => openOrderEditor(order)} role="button" tabIndex={0} onKeyDown={(e) => e.key === "Enter" && openOrderEditor(order)}>
+                    <article
+                      key={order.id}
+                      className={`order-card order-card-compact ${expandedOrderId === order.id ? "order-card-expanded" : ""}`}
+                      onClick={() => toggleExpandedOrder(order.id)}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(e) => e.key === "Enter" && toggleExpandedOrder(order.id)}
+                    >
                       <div className="order-card-main">
                         <div className="order-card-header">
                           <h3>Pedido #{order.id}</h3>
@@ -916,17 +1105,45 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
                       <div className="order-card-total">
                         <span>{order.items.length} item(s)</span>
                         <strong>{formatCurrency(order.total)}</strong>
-                        <button
-                          className="danger-button order-delete-btn"
-                          type="button"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            removeOrder(order.id);
-                          }}
-                        >
-                          Eliminar
-                        </button>
                       </div>
+                      {expandedOrderId === order.id ? (
+                        <div className="order-card-inline-detail">
+                          <div className="order-history-items order-history-items-compact">
+                            {order.items.map((item) => (
+                              <div key={item.id} className="order-history-item order-history-item-compact">
+                                <div className="order-item-img" style={{ backgroundImage: `url(${item.image})` }} />
+                                <div>
+                                  <h4>{item.productName}</h4>
+                                  {item.variant ? <p>{item.variant}</p> : null}
+                                </div>
+                                <span>{item.quantity}x</span>
+                              </div>
+                            ))}
+                          </div>
+                          <div className="order-card-actions-compact">
+                            <button
+                              className="secondary-button secondary-button-sm"
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                openOrderEditor(order);
+                              }}
+                            >
+                              Editar
+                            </button>
+                            <button
+                              className="danger-button danger-button-sm"
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                removeOrder(order.id);
+                              }}
+                            >
+                              Eliminar
+                            </button>
+                          </div>
+                        </div>
+                      ) : null}
                     </article>
                   ))}
                 </div>
@@ -1068,114 +1285,200 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
               <button className="icon-button" type="button" onClick={resetProductForm} aria-label="Cerrar">×</button>
             </div>
 
-            <form className="product-editor-compact" onSubmit={submitProduct}>
-              <section className="editor-section">
-                <div className="editor-grid editor-grid-compact">
-                  <label className="stack-form compact-field">
-                    <span className="field-label">Nombre del producto</span>
-                    <input type="text" value={productForm.name} onChange={(e) => setProductForm({ ...productForm, name: e.target.value })} placeholder="Nombre" required />
-                  </label>
-                  <label className="stack-form compact-field">
-                    <span className="field-label">Precio normal</span>
-                  <div className="currency-input-wrap compact-price-field">
-                    <span>$</span>
-                    <input type="number" min={1} value={productForm.price || ""} onChange={(e) => setProductForm({ ...productForm, price: Number(e.target.value) })} placeholder="Precio normal" required />
-                  </div>
-                  </label>
-                  <label className="stack-form compact-field">
-                    <span className="field-label">Precio con descuento</span>
-                  <div className="currency-input-wrap compact-price-field">
-                    <span>$</span>
-                    <input type="number" min={0} value={productForm.discountPrice || ""} onChange={(e) => setProductForm({ ...productForm, discountPrice: e.target.value ? Number(e.target.value) : null })} placeholder="Precio con descuento" />
-                  </div>
-                  </label>
-                </div>
-
-                <textarea rows={3} value={productForm.description} onChange={(e) => setProductForm({ ...productForm, description: e.target.value })} placeholder="Descripción" required />
-                <label className="checkbox-row"><input type="checkbox" checked={productForm.featured} onChange={(e) => setProductForm({ ...productForm, featured: e.target.checked })} />Marcar como destacado</label>
-                {productForm.discountPrice ? (
-                  <p className="helper-text">Con descuento activo se marcará automáticamente como destacado y recibirá la etiqueta `descuento`.</p>
-                ) : null}
-              </section>
-
-              <section className="editor-section">
-                <div className="inline-heading">
-                  <div><p className="section-overline">Imágenes</p><h3 className="subsection-title">Elegí una sola fuente por vez</h3></div>
-                  <div className="image-mode-switch">
-                    <button className={`secondary-button ${imageMode === "url" ? "active-mode" : ""}`} type="button" onClick={() => switchImageMode("url")}>URL</button>
-                    <button className={`secondary-button ${imageMode === "upload" ? "active-mode" : ""}`} type="button" onClick={() => switchImageMode("upload")}>Computadora</button>
-                  </div>
-                </div>
-
-                {imageMode === "url" ? (
-                  <div className="variant-group-editor">
-                    <div className="variant-editor">
-                      <input type="url" value={urlImageDraft} onChange={(e) => setUrlImageDraft(e.target.value)} placeholder="Pegá una URL de imagen" onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addImageUrl(); } }} />
-                      <button className="secondary-button" type="button" onClick={addImageUrl}>Agregar imagen</button>
-                    </div>
-                  </div>
-                ) : (
-                  <label className="file-upload-field file-upload-field-multi">
-                    <span>Subir imágenes desde tu ordenador</span>
-                    <input type="file" accept="image/*" multiple onChange={handleImageUpload} />
-                    <strong>Seleccionar archivos</strong>
-                  </label>
-                )}
-
-                <div className="editor-gallery-grid">
-                  {(productForm.images || []).map((image, index) => (
-                    <div key={`${image}-${index}`} className="editor-gallery-card">
-                      <div className="editor-image-preview-media" style={{ backgroundImage: `url(${image})` }} />
-                      <button className="danger-button" type="button" onClick={() => removeImage(index)}>Eliminar</button>
-                    </div>
-                  ))}
-                </div>
-              </section>
-
-              <section className="editor-section">
-                <div className="inline-heading">
-                  <div><p className="section-overline">Variantes</p><h3 className="subsection-title">Color, talle, tela o el tipo que necesites</h3></div>
-                  <button className="secondary-button" type="button" onClick={addVariantGroup}>Agregar categoría</button>
-                </div>
-
-                <div className="variant-group-editor-list">
-                  {(productForm.variantGroups || []).map((group, groupIndex) => (
-                    <div key={`${group.name}-${groupIndex}`} className="variant-group-editor">
-                      <div className="variant-group-editor-head">
-                        <input type="text" value={group.name} onChange={(e) => updateVariantGroupName(groupIndex, e.target.value)} placeholder="Ej: Color" />
-                        <button className="danger-button" type="button" onClick={() => removeVariantGroup(groupIndex)}>Eliminar</button>
+            <form className="product-editor-shell" onSubmit={submitProduct}>
+              <div className="product-editor-columns">
+                <div className="product-editor-column product-editor-column-main">
+                  <section className="editor-section editor-section-priority">
+                    <div className="editor-section-head">
+                      <div>
+                        <p className="section-overline">Base</p>
+                        <h3 className="subsection-title">Información principal</h3>
                       </div>
-                      <div className="variant-editor">
-                        <input type="text" value={variantOptionDrafts[groupIndex] || ""} onChange={(e) => updateVariantOptionDraft(groupIndex, e.target.value)} placeholder="Ej: Negro" onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addVariantOption(groupIndex); } }} />
-                        <button className="secondary-button" type="button" onClick={() => addVariantOption(groupIndex)}>Agregar opción</button>
+                    </div>
+
+                    <div className="editor-grid editor-grid-compact">
+                      <label className="stack-form compact-field product-name-field">
+                        <span className="field-label">Nombre del producto</span>
+                        <input type="text" value={productForm.name} onChange={(e) => setProductForm({ ...productForm, name: e.target.value })} placeholder="Nombre" required />
+                      </label>
+                      <label className="stack-form compact-field">
+                        <span className="field-label">Precio normal</span>
+                        <div className="currency-input-wrap compact-price-field">
+                          <span>$</span>
+                          <input type="number" min={1} value={productForm.price || ""} onChange={(e) => setProductForm({ ...productForm, price: Number(e.target.value) })} placeholder="Precio normal" required />
+                        </div>
+                      </label>
+                      <label className="stack-form compact-field">
+                        <span className="field-label">Precio con descuento</span>
+                        <div className="currency-input-wrap compact-price-field">
+                          <span>$</span>
+                          <input type="number" min={0} value={productForm.discountPrice || ""} onChange={(e) => setProductForm({ ...productForm, discountPrice: e.target.value ? Number(e.target.value) : null })} placeholder="Precio con descuento" />
+                        </div>
+                      </label>
+                    </div>
+
+                    <label className="stack-form compact-field">
+                      <span className="field-label">Descripción</span>
+                      <textarea rows={4} value={productForm.description} onChange={(e) => setProductForm({ ...productForm, description: e.target.value })} placeholder="Descripción" required />
+                    </label>
+
+                    <div className="editor-inline-meta">
+                      <label className="checkbox-row"><input type="checkbox" checked={productForm.featured} onChange={(e) => setProductForm({ ...productForm, featured: e.target.checked })} />Marcar como destacado</label>
+                      <div className="editor-summary-pills">
+                        <span className="session-pill">{productForm.images.length} imagen(es)</span>
+                        <span className="session-pill">{productForm.variantGroups?.length || 0} categoría(s)</span>
+                        <span className="session-pill">{productForm.tags.length} etiqueta(s)</span>
                       </div>
-                      <div className="tag-row">
-                        {group.options.map((option) => (
-                          <button key={option} type="button" className="tag-chip tag-chip-action" onClick={() => removeVariantOption(groupIndex, option)}>
-                            {option} ×
-                          </button>
+                    </div>
+
+                    {productForm.discountPrice ? (
+                      <p className="helper-text">Con descuento activo se marcará automáticamente como destacado y recibirá la etiqueta `descuento`.</p>
+                    ) : null}
+                  </section>
+
+                  <section className="editor-section">
+                    <div className="inline-heading">
+                      <div><p className="section-overline">Variantes</p><h3 className="subsection-title">Opciones del producto</h3></div>
+                      <button className="secondary-button" type="button" onClick={addVariantGroup}>Agregar categoría</button>
+                    </div>
+                    <p className="helper-text">Usá categorías como color, talle, material o modelo para que el pedido quede bien cargado.</p>
+
+                    <div className="variant-group-editor-list">
+                      {(productForm.variantGroups || []).map((group, groupIndex) => (
+                        <div key={`${group.name}-${groupIndex}`} className="variant-group-editor">
+                          <div className="variant-group-editor-head">
+                            <input type="text" value={group.name} onChange={(e) => updateVariantGroupName(groupIndex, e.target.value)} placeholder="Ej: Color" />
+                            <button className="danger-button" type="button" onClick={() => removeVariantGroup(groupIndex)}>Eliminar</button>
+                          </div>
+                          <div className="variant-editor">
+                            <input type="text" value={variantOptionDrafts[groupIndex] || ""} onChange={(e) => updateVariantOptionDraft(groupIndex, e.target.value)} placeholder="Ej: Negro" onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addVariantOption(groupIndex); } }} />
+                            <button className="secondary-button" type="button" onClick={() => addVariantOption(groupIndex)}>Agregar opción</button>
+                          </div>
+                          <div className="tag-row">
+                            {group.options.map((option) => (
+                              <button key={option} type="button" className="tag-chip tag-chip-action" onClick={() => removeVariantOption(groupIndex, option)}>
+                                {option} ×
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                </div>
+
+                <div className="product-editor-column product-editor-column-side">
+                  <section className="editor-section">
+                    <div className="inline-heading">
+                      <div><p className="section-overline">Imágenes</p><h3 className="subsection-title">Galería del producto</h3></div>
+                      <button className="secondary-button" type="button" onClick={() => setMediaOrderOpen(true)}>Ordenar medios</button>
+                    </div>
+
+                    <div className="editor-dual-source">
+                      <div className="variant-group-editor">
+                        <div className="editor-source-label">Agregar por URL</div>
+                        <div className="variant-editor">
+                          <input type="url" value={urlImageDraft} onChange={(e) => setUrlImageDraft(e.target.value)} placeholder="Pegá una URL de imagen" onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addImageUrl(); } }} />
+                          <button className="secondary-button" type="button" onClick={addImageUrl}>Agregar imagen</button>
+                        </div>
+                      </div>
+
+                      <label className="file-upload-field file-upload-field-multi">
+                        <span>Subir desde tu ordenador</span>
+                        <input type="file" accept="image/*" multiple onChange={handleImageUpload} />
+                        <strong>Seleccionar archivos</strong>
+                      </label>
+                    </div>
+
+                    <div className="editor-gallery-grid">
+                      {(productForm.images || []).map((image, index) => (
+                        <div key={`${image}-${index}`} className="editor-gallery-card">
+                          <div className="editor-image-preview-media" style={{ backgroundImage: `url(${image})` }} />
+                          <div className="editor-media-footer editor-media-footer-simple">
+                            <button className="editor-remove-btn" type="button" onClick={() => removeImage(index)}>Quitar</button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+
+                  <section className="editor-section editor-section-video">
+                    <div className="inline-heading">
+                      <div><p className="section-overline">Video</p><h3 className="subsection-title">Complemento visual</h3></div>
+                    </div>
+
+                    <div className="editor-dual-source">
+                      <div className="variant-group-editor">
+                        <div className="editor-source-label">Agregar por URL</div>
+                        <div className="stack-form">
+                          <input
+                            type="text"
+                            value={urlVideoLabelDraft}
+                            onChange={(e) => setUrlVideoLabelDraft(e.target.value)}
+                            placeholder="Nombre del video"
+                          />
+                          <div className="variant-editor">
+                            <input
+                              type="url"
+                              value={urlVideoDraft}
+                              onChange={(e) => setUrlVideoDraft(e.target.value)}
+                              placeholder="Pegá una URL de YouTube o video"
+                              onBlur={saveVideoUrl}
+                            />
+                            <button className="secondary-button" type="button" onClick={saveVideoUrl}>Guardar video</button>
+                          </div>
+                        </div>
+                      </div>
+
+                      <label className="file-upload-field">
+                        <span>Subir desde tu ordenador</span>
+                        <input type="file" accept="video/*" multiple onChange={handleVideoUpload} />
+                        <strong>Seleccionar archivo</strong>
+                      </label>
+                    </div>
+
+                    {productForm.videos.length > 0 ? (
+                      <div className="editor-video-list">
+                        {productForm.videos.map((video, index) => (
+                          <div key={`${video.url}-${index}`} className="editor-video-card">
+                            <div className="editor-media-footer editor-media-footer-simple">
+                              <span className="editor-video-inline-label">{video.label || `Video ${index + 1}`}</span>
+                              <button className="editor-remove-btn" type="button" onClick={() => removeVideo(index)}>
+                                Quitar
+                              </button>
+                            </div>
+                          </div>
                         ))}
                       </div>
+                    ) : (
+                      <p className="helper-text">Los videos se mostrarán dentro del detalle del producto junto a las imágenes.</p>
+                    )}
+                  </section>
+
+                  <section className="editor-section">
+                    <div className="inline-heading">
+                      <div><p className="section-overline">Etiquetas</p><h3 className="subsection-title">Clasificación</h3></div>
+                      <button className="secondary-button" type="button" onClick={() => setTagPickerOpen(true)}>Elegir etiquetas</button>
                     </div>
-                  ))}
+                    <p className="helper-text">Usalas para agrupar, filtrar y destacar mejor los productos.</p>
+                    <div className="tag-selection-summary">
+                      {productForm.tags.length > 0 ? (
+                        <div className="tag-row">{productForm.tags.map((tag) => <span key={tag} className="tag-chip">#{tag}</span>)}</div>
+                      ) : (<p className="helper-text">No hay etiquetas seleccionadas.</p>)}
+                    </div>
+                  </section>
                 </div>
-              </section>
+              </div>
 
-              <section className="editor-section">
-                <div className="inline-heading">
-                  <div><p className="section-overline">Etiquetas</p><h3 className="subsection-title">Elegí etiquetas</h3></div>
-                  <button className="secondary-button" type="button" onClick={() => setTagPickerOpen(true)}>Elegir etiquetas</button>
+              <div className="product-editor-footer">
+                <div className="product-editor-footer-copy">
+                  <strong>{editingId ? "Editando producto" : "Nuevo producto"}</strong>
+                  <span>Guardá cuando ya estén completos datos, medios y clasificación.</span>
                 </div>
-                <div className="tag-selection-summary">
-                  {productForm.tags.length > 0 ? (
-                    <div className="tag-row">{productForm.tags.map((tag) => <span key={tag} className="tag-chip">#{tag}</span>)}</div>
-                  ) : (<p className="helper-text">No hay etiquetas seleccionadas.</p>)}
+                <div className="inline-actions">
+                  <button className="primary-button" type="submit" disabled={isPending}>{editingId ? "Guardar cambios" : "Crear producto"}</button>
+                  <button className="secondary-button" type="button" onClick={resetProductForm}>Cancelar</button>
                 </div>
-              </section>
-
-              <div className="inline-actions">
-                <button className="primary-button" type="submit" disabled={isPending}>{editingId ? "Guardar cambios" : "Crear producto"}</button>
-                <button className="secondary-button" type="button" onClick={resetProductForm}>Cancelar</button>
               </div>
             </form>
             <p className={`feedback ${tagMessage || productMessage ? "visible" : ""}`}>{productMessage || tagMessage}</p>
@@ -1327,6 +1630,75 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
         </div>
       ) : null}
 
+      {mediaOrderOpen ? (
+        <div className="modal-backdrop" role="presentation" onClick={() => setMediaOrderOpen(false)}>
+          <div className="modal-card modal-card-tag-picker modal-card-media-order" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div><p className="section-overline">Medios</p><h2>Ordenar imágenes y videos</h2></div>
+              <button className="icon-button" type="button" onClick={() => setMediaOrderOpen(false)} aria-label="Cerrar">×</button>
+            </div>
+
+            <div className="media-order-layout">
+              <section className="editor-section">
+                <div className="inline-heading">
+                  <div><p className="section-overline">Imágenes</p><h3 className="subsection-title">Orden de aparición</h3></div>
+                </div>
+                {productForm.images.length > 0 ? (
+                  <div className="media-order-list">
+                    {productForm.images.map((image, index) => (
+                      <div key={`${image}-${index}`} className="media-order-item">
+                        <div className="media-order-preview" style={{ backgroundImage: `url(${image})` }} />
+                        <div className="media-order-copy">
+                          <span className={`editor-media-order ${index === 0 ? "is-primary" : ""}`}>{index === 0 ? "Portada" : `Imagen ${index + 1}`}</span>
+                          <span className="editor-media-subtitle">{index === 0 ? "Primera imagen del producto" : "Se muestra después de la anterior"}</span>
+                        </div>
+                        <div className="editor-order-controls" aria-label="Orden de imagen">
+                          <button className="editor-order-btn" type="button" disabled={index === 0} onClick={() => moveImage(index, "up")}>↑</button>
+                          <button className="editor-order-btn" type="button" disabled={index === productForm.images.length - 1} onClick={() => moveImage(index, "down")}>↓</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="helper-text">No hay imágenes cargadas.</p>
+                )}
+              </section>
+
+              <section className="editor-section">
+                <div className="inline-heading">
+                  <div><p className="section-overline">Videos</p><h3 className="subsection-title">Orden de aparición</h3></div>
+                </div>
+                {productForm.videos.length > 0 ? (
+                  <div className="media-order-list">
+                    {productForm.videos.map((video, index) => (
+                      <div key={`${video.url}-${index}`} className="media-order-item media-order-item-video">
+                        <div className="media-order-preview media-order-preview-video">
+                          <span>{video.url.includes("youtube.com") ? "YouTube" : video.url.startsWith("data:video/") ? "Archivo" : "URL"}</span>
+                        </div>
+                        <div className="media-order-copy">
+                          <span className={`editor-media-order ${index === 0 ? "is-primary" : ""}`}>{index === 0 ? "Video principal" : `Video ${index + 1}`}</span>
+                          <span className="editor-media-subtitle">{video.label || (index === 0 ? "Primer video del producto" : "Se muestra después del anterior")}</span>
+                        </div>
+                        <div className="editor-order-controls" aria-label="Orden de video">
+                          <button className="editor-order-btn" type="button" disabled={index === 0} onClick={() => moveVideo(index, "up")}>↑</button>
+                          <button className="editor-order-btn" type="button" disabled={index === productForm.videos.length - 1} onClick={() => moveVideo(index, "down")}>↓</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="helper-text">No hay videos cargados.</p>
+                )}
+              </section>
+            </div>
+
+            <div className="inline-actions">
+              <button className="primary-button" type="button" onClick={() => setMediaOrderOpen(false)}>Listo</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {productPickerOpen ? (
         <div className="modal-backdrop modal-backdrop-front" role="presentation" onClick={() => setProductPickerOpen(false)}>
           <div className="modal-card modal-card-order modal-card-order-wide" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
@@ -1381,6 +1753,8 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
           </div>
         </div>
       ) : null}
+
+      <CartDrawer open={cartOpen} onClose={() => setCartOpen(false)} onCheckout={() => setCartOpen(false)} />
     </>
   );
 }

@@ -85,14 +85,18 @@ export function HeaderShell({ user, onLoginClick, onLogoutClick, onCartClick }: 
             <div className="header-sidebar-actions">
               {user ? (
                 <>
-                  <Link href="/pedidos" className={`sidebar-link ${pathname === "/pedidos" ? "active" : ""}`} onClick={() => setSidebarOpen(false)}>
-                    Mis pedidos
-                  </Link>
                   {user.role === "admin" ? (
                     <Link href="/admin" className={`sidebar-link ${pathname === "/admin" ? "active" : ""}`} onClick={() => setSidebarOpen(false)}>
                       Panel
                     </Link>
                   ) : null}
+                  <Link href="/pedidos" className={`sidebar-link ${pathname === "/pedidos" ? "active" : ""}`} onClick={() => setSidebarOpen(false)}>
+                    Mis pedidos
+                  </Link>
+                  <button className="sidebar-cart" type="button" onClick={() => { setSidebarOpen(false); onCartClick?.(); }} aria-label="Ver carrito">
+                    <span>Carrito</span>
+                    {totalItems > 0 ? <strong>{totalItems}</strong> : <strong>0</strong>}
+                  </button>
                   <button className="sidebar-link" type="button" onClick={() => { setSidebarOpen(false); onLogoutClick?.(); }}>
                     Salir
                   </button>
@@ -102,11 +106,6 @@ export function HeaderShell({ user, onLoginClick, onLogoutClick, onCartClick }: 
                   Ingresar
                 </button>
               )}
-
-              <button className="sidebar-cart" type="button" onClick={() => { setSidebarOpen(false); onCartClick?.(); }} aria-label="Ver carrito">
-                <span>Carrito</span>
-                {totalItems > 0 ? <strong>{totalItems}</strong> : <strong>0</strong>}
-              </button>
             </div>
           </aside>
         </div>

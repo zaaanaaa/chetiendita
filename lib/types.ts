@@ -36,6 +36,11 @@ export interface ProductVariantGroup {
   options: string[];
 }
 
+export interface ProductVideo {
+  url: string;
+  label: string;
+}
+
 export interface Product {
   id: number;
   name: string;
@@ -44,6 +49,8 @@ export interface Product {
   discountPrice: number | null;
   image: string;
   images: string[];
+  videos: ProductVideo[];
+  video: string | null;
   featured: boolean;
   soldCount: number;
   createdAt: string;
@@ -59,6 +66,8 @@ export interface ProductInput {
   discountPrice: number | null;
   image: string;
   images: string[];
+  videos: ProductVideo[];
+  video: string | null;
   featured: boolean;
   tags: string[];
   variants?: string[];
