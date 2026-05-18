@@ -37,6 +37,10 @@ function formatCurrency(value: number) {
   }).format(value);
 }
 
+function getOrderUnitCount(order: Order) {
+  return order.items.reduce((total, item) => total + item.quantity, 0);
+}
+
 export function UserOrdersClient({ user, orders }: UserOrdersClientProps) {
   const router = useRouter();
   const [cartOpen, setCartOpen] = useState(false);
@@ -169,7 +173,7 @@ export function UserOrdersClient({ user, orders }: UserOrdersClientProps) {
                         {order.notes ? <p className="order-customer">Notas: {order.notes}</p> : null}
                       </div>
                       <div className="order-card-total">
-                        <span>{order.items.length} item(s)</span>
+                        <span>{getOrderUnitCount(order)} item(s)</span>
                         <strong>{formatCurrency(order.total)}</strong>
                       </div>
                       <div className="order-card-actions-compact">
@@ -188,8 +192,12 @@ export function UserOrdersClient({ user, orders }: UserOrdersClientProps) {
                               <div>
                                 <h4>{item.productName}</h4>
                                 {item.variant ? <p>{item.variant}</p> : null}
+                                <p className="order-history-item-price">{formatCurrency(item.unitPrice)} c/u</p>
                               </div>
-                              <span>{item.quantity}x</span>
+                              <div className="order-history-item-meta">
+                                <span>{item.quantity}x</span>
+                                <strong>{formatCurrency(item.unitPrice * item.quantity)}</strong>
+                              </div>
                             </div>
                           ))}
                         </div>
@@ -237,7 +245,7 @@ export function UserOrdersClient({ user, orders }: UserOrdersClientProps) {
                         </p>
                       </div>
                       <div className="order-card-total">
-                        <span>{order.items.length} item(s)</span>
+                        <span>{getOrderUnitCount(order)} item(s)</span>
                         <strong>{formatCurrency(order.total)}</strong>
                       </div>
                       <button className="secondary-button secondary-button-sm" type="button" onClick={() => toggleOrder(order.id)}>
@@ -251,8 +259,12 @@ export function UserOrdersClient({ user, orders }: UserOrdersClientProps) {
                               <div>
                                 <h4>{item.productName}</h4>
                                 {item.variant ? <p>{item.variant}</p> : null}
+                                <p className="order-history-item-price">{formatCurrency(item.unitPrice)} c/u</p>
                               </div>
-                              <span>{item.quantity}x</span>
+                              <div className="order-history-item-meta">
+                                <span>{item.quantity}x</span>
+                                <strong>{formatCurrency(item.unitPrice * item.quantity)}</strong>
+                              </div>
                             </div>
                           ))}
                         </div>

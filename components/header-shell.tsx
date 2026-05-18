@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -20,6 +20,43 @@ export function HeaderShell({ user, onLoginClick, onLogoutClick, onCartClick }: 
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const isLanding = pathname === "/";
   const isCatalog = pathname === "/catalogo";
+  const isAdminPanel = pathname === "/admin";
+  const isAdminUser = user?.role === "admin";
+
+  useEffect(() => {
+    setSidebarOpen(false);
+  }, [pathname]);
+
+  useEffect(() => {
+    if (sidebarOpen) {
+      document.body.classList.add("modal-open");
+      return () => {
+        document.body.classList.remove("modal-open");
+      };
+    }
+
+    document.body.classList.remove("modal-open");
+    return undefined;
+  }, [sidebarOpen]);
+
+  const closeSidebar = () => setSidebarOpen(false);
+
+  const primaryNavigation = isAdminUser
+    ? [
+        { href: "/catalogo", label: "Catálogo", active: isCatalog },
+        { href: "/admin", label: "Panel", active: isAdminPanel },
+      ]
+    : isLanding
+      ? [
+          { href: "/", label: "Inicio", active: pathname === "/" },
+          { href: "/catalogo", label: "Catálogo", active: isCatalog },
+          { href: "/#sobre-nosotros", label: "Nosotros", active: false },
+          { href: "/#contacto", label: "Contacto", active: false },
+        ]
+      : [
+          { href: "/", label: "Inicio", active: pathname === "/" },
+          { href: "/catalogo", label: "Catálogo", active: isCatalog },
+        ];
 
   return (
     <header className="header-container">
@@ -32,41 +69,27 @@ export function HeaderShell({ user, onLoginClick, onLogoutClick, onCartClick }: 
             </Link>
 
             <div className="navbar-menu navbar-menu-inline">
-              {!isCatalog ? (
-                <Link href="/catalogo" className={`nav-link ${pathname === "/catalogo" ? "active" : ""}`}>
-                  Catálogo
+              {primaryNavigation.map((item) => (
+                <Link key={item.href} href={item.href} className={`nav-link ${item.active ? "active" : ""}`}>
+                  {item.label}
                 </Link>
-              ) : null}
-              {isLanding ? (
-                <>
-                  <a href="/#sobre-nosotros" className="nav-link">
-                    Nosotros
-                  </a>
-                  <a href="/#contacto" className="nav-link">
-                    Contacto
-                  </a>
-                </>
-              ) : (
-                <>
-                  <Link href="/" className={`nav-link ${pathname === "/" ? "active" : ""}`}>
-                    Inicio
+              ))}
+              {!isLanding && !isAdminUser ? (
+                user ? (
+                  <Link href="/pedidos" className={`nav-link ${pathname === "/pedidos" ? "active" : ""}`}>
+                    Mis pedidos
                   </Link>
-                  {user ? (
-                    <Link href="/pedidos" className={`nav-link ${pathname === "/pedidos" ? "active" : ""}`}>
-                      Mis pedidos
-                    </Link>
-                  ) : (
-                    <button type="button" className="nav-link nav-link-button" onClick={onCartClick}>
-                      Carrito
-                    </button>
-                  )}
-                </>
-              )}
+                ) : (
+                  <button type="button" className="nav-link nav-link-button" onClick={onCartClick}>
+                    Carrito
+                  </button>
+                )
+              ) : null}
             </div>
           </div>
 
           <button 
-            className="sidebar-toggle" 
+            className={`sidebar-toggle ${sidebarOpen ? "active" : ""}`} 
             type="button" 
             onClick={() => setSidebarOpen(!sidebarOpen)}
             aria-label="Menú"
@@ -79,33 +102,72 @@ export function HeaderShell({ user, onLoginClick, onLogoutClick, onCartClick }: 
             </svg>
           </button>
 
+          <div
+            className={`header-sidebar-backdrop ${sidebarOpen ? "open" : ""}`}
+            role="presentation"
+            onClick={closeSidebar}
+          />
+
           <aside className={`header-sidebar ${sidebarOpen ? "open" : ""}`}>
+            <div className="header-sidebar-section">
+              <span className="header-sidebar-label">Navegación</span>
+              <div className="header-sidebar-actions">
+                {primaryNavigation.map((item) => (
+                  <Link
+                    key={`sidebar-${item.href}`}
+                    href={item.href}
+                    className={`sidebar-link ${item.active ? "active" : ""}`}
+                    onClick={closeSidebar}
+                  >
+                    <span>{item.label}</span>
+                  </Link>
+                ))}
+                {!isLanding && !isAdminUser ? (
+                  user ? (
+                    <Link
+                      href="/pedidos"
+                      className={`sidebar-link ${pathname === "/pedidos" ? "active" : ""}`}
+                      onClick={closeSidebar}
+                    >
+                      <span>Mis pedidos</span>
+                    </Link>
+                  ) : (
+                    <button
+                      className="sidebar-link"
+                      type="button"
+                      onClick={() => {
+                        closeSidebar();
+                        onCartClick?.();
+                      }}
+                    >
+                      <span>Carrito</span>
+                    </button>
+                  )
+                ) : null}
+              </div>
+            </div>
+
+            <div className="header-sidebar-section">
+              <span className="header-sidebar-label">Cuenta</span>
             {user ? <span className="header-sidebar-user">{user.name || user.username}</span> : null}
 
             <div className="header-sidebar-actions">
               {user ? (
                 <>
-                  {user.role === "admin" ? (
-                    <Link href="/admin" className={`sidebar-link ${pathname === "/admin" ? "active" : ""}`} onClick={() => setSidebarOpen(false)}>
-                      Panel
-                    </Link>
-                  ) : null}
-                  <Link href="/pedidos" className={`sidebar-link ${pathname === "/pedidos" ? "active" : ""}`} onClick={() => setSidebarOpen(false)}>
-                    Mis pedidos
-                  </Link>
-                  <button className="sidebar-cart" type="button" onClick={() => { setSidebarOpen(false); onCartClick?.(); }} aria-label="Ver carrito">
+                  <button className="sidebar-cart" type="button" onClick={() => { closeSidebar(); onCartClick?.(); }} aria-label="Ver carrito">
                     <span>Carrito</span>
                     {totalItems > 0 ? <strong>{totalItems}</strong> : <strong>0</strong>}
                   </button>
-                  <button className="sidebar-link" type="button" onClick={() => { setSidebarOpen(false); onLogoutClick?.(); }}>
+                  <button className="sidebar-link" type="button" onClick={() => { closeSidebar(); onLogoutClick?.(); }}>
                     Salir
                   </button>
                 </>
               ) : (
-                <button className="sidebar-link sidebar-link-primary" type="button" onClick={() => { setSidebarOpen(false); onLoginClick?.(); }}>
+                <button className="sidebar-link sidebar-link-primary" type="button" onClick={() => { closeSidebar(); onLoginClick?.(); }}>
                   Ingresar
                 </button>
               )}
+            </div>
             </div>
           </aside>
         </div>

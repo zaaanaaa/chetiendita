@@ -532,7 +532,11 @@ export function listProducts(filters?: {
         !search ||
         product.name.toLowerCase().includes(search) ||
         product.description.toLowerCase().includes(search);
-      const matchesTag = !tag || product.tags.includes(tag);
+      const matchesTag =
+        !tag ||
+        (tag === "descuento"
+          ? product.discountPrice !== null && product.discountPrice < product.price
+          : product.tags.includes(tag));
       return matchesSearch && matchesTag;
     });
 
@@ -550,7 +554,18 @@ export function listProducts(filters?: {
 }
 
 export function listTags(): Tag[] {
-  return db.prepare("SELECT id, name FROM tags ORDER BY name").all() as Tag[];
+  const tags = db.prepare("SELECT id, name FROM tags ORDER BY name").all() as Tag[];
+  const hasDiscountedProducts = Boolean(
+    db
+      .prepare("SELECT 1 FROM products WHERE discount_price IS NOT NULL AND discount_price < price LIMIT 1")
+      .get(),
+  );
+
+  if (hasDiscountedProducts && !tags.some((tag) => tag.name === "descuento")) {
+    return [{ id: -1, name: "descuento" }, ...tags];
+  }
+
+  return tags;
 }
 
 export function findUserByCredentials(username: string, password: string) {
@@ -815,6 +830,7 @@ export function resetPasswordWithRecoveryCode(code: string, password: string) {
 
 function syncProductTags(productId: number, tags: string[]) {
   const selectTag = db.prepare("SELECT id FROM tags WHERE name = ?");
+  const insertTag = db.prepare("INSERT OR IGNORE INTO tags(name) VALUES (?)");
   const insertLink = db.prepare(
     "INSERT OR IGNORE INTO product_tags(product_id, tag_id) VALUES (?, ?)",
   );
@@ -823,6 +839,7 @@ function syncProductTags(productId: number, tags: string[]) {
   deleteLinks.run(productId);
 
   for (const tagName of tags) {
+    insertTag.run(tagName);
     const tag = selectTag.get(tagName) as { id: number } | undefined;
     if (tag) {
       insertLink.run(productId, tag.id);

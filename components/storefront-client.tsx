@@ -1,6 +1,6 @@
 "use client";
 
-import { ChangeEvent, useEffect, useMemo, useState, useTransition } from "react";
+import { ChangeEvent, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
@@ -39,6 +39,10 @@ function getDiscountPercentage(product: Product) {
   }
 
   return Math.round(((product.price - product.discountPrice) / product.price) * 100);
+}
+
+function isDiscountedProduct(product: Product) {
+  return product.discountPrice !== null && product.discountPrice < product.price;
 }
 
 function getProductSnippet(description: string) {
@@ -157,6 +161,7 @@ export function StorefrontClient({ initialProducts, tags, user, mode, heroImages
   const [cartOpen, setCartOpen] = useState(false);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [filterMenuOpen, setFilterMenuOpen] = useState(false);
   const [heroEditorOpen, setHeroEditorOpen] = useState(false);
   const [heroDraftImages, setHeroDraftImages] = useState(heroImages);
   const [heroIndex, setHeroIndex] = useState(0);
@@ -165,11 +170,41 @@ export function StorefrontClient({ initialProducts, tags, user, mode, heroImages
   const [heroMessage, setHeroMessage] = useState("");
   const [isPending, startTransition] = useTransition();
   const canEditHero = user?.role === "admin";
+  const filterMenuRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     setQuery(searchParams.get("q") || "");
     setSelectedTag(searchParams.get("tag") || "");
   }, [searchParams]);
+
+  useEffect(() => {
+    setFilterMenuOpen(false);
+  }, [selectedTag, pathname, searchParams]);
+
+  useEffect(() => {
+    if (!filterMenuOpen) {
+      return;
+    }
+
+    function handlePointerDown(event: MouseEvent) {
+      if (!filterMenuRef.current?.contains(event.target as Node)) {
+        setFilterMenuOpen(false);
+      }
+    }
+
+    function handleEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setFilterMenuOpen(false);
+      }
+    }
+
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleEscape);
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [filterMenuOpen]);
 
   useEffect(() => {
     setHeroDraftImages(heroImages);
@@ -218,7 +253,9 @@ export function StorefrontClient({ initialProducts, tags, user, mode, heroImages
         !normalizedQuery ||
         product.name.toLowerCase().includes(normalizedQuery) ||
         product.description.toLowerCase().includes(normalizedQuery);
-      const matchesTag = !selectedTag || product.tags.includes(selectedTag);
+      const matchesTag =
+        !selectedTag ||
+        (selectedTag === "descuento" ? isDiscountedProduct(product) : product.tags.includes(selectedTag));
       return matchesQuery && matchesTag;
     });
   }, [initialProducts, query, selectedTag]);
@@ -226,6 +263,7 @@ export function StorefrontClient({ initialProducts, tags, user, mode, heroImages
   const displayProducts = mode === "home" ? filteredProducts.slice(0, LANDING_LIMIT) : filteredProducts;
   const hasMore = mode === "home" && filteredProducts.length > LANDING_LIMIT;
   const activeFilters = Number(query.trim().length > 0) + Number(Boolean(selectedTag));
+  const selectedTagLabel = selectedTag || "Filtros";
   const highlightedTags = useMemo(() => {
     const discountTag = tags.find((tag) => tag.name === "descuento");
     const remainingTags = tags.filter((tag) => tag.name !== "descuento");
@@ -331,6 +369,22 @@ export function StorefrontClient({ initialProducts, tags, user, mode, heroImages
     const nextTag = selectedTag === tag ? "" : tag;
     setSelectedTag(nextTag);
     updateFilters({ tag: nextTag });
+  }
+
+  function applyTagFilter(tag: string) {
+    setFilterMenuOpen(false);
+    if (mode === "home") {
+      if (!tag) {
+        router.push("/catalogo");
+        return;
+      }
+
+      router.push(`/catalogo?tag=${encodeURIComponent(tag)}`);
+      return;
+    }
+
+    setSelectedTag(tag);
+    updateFilters({ tag });
   }
 
   function handleLogout() {
@@ -464,22 +518,42 @@ export function StorefrontClient({ initialProducts, tags, user, mode, heroImages
                 />
               </label>
 
-              <select
-                value={selectedTag}
-                onChange={(event) => {
-                  setSelectedTag(event.target.value);
-                  updateFilters({ tag: event.target.value });
-                }}
-                className="filter-select"
-                aria-label="Filtrar por categoría"
-              >
-                <option value="">Todas las categorías</option>
-                {tags.map((tag) => (
-                  <option key={tag.id} value={tag.name}>
-                    {tag.name}
-                  </option>
-                ))}
-              </select>
+              <div className="filter-select-shell" ref={filterMenuRef}>
+                <button
+                  type="button"
+                  className={`filter-select ${filterMenuOpen ? "open" : ""} ${selectedTag ? "has-value" : ""}`}
+                  aria-label="Filtros"
+                  aria-haspopup="listbox"
+                  aria-expanded={filterMenuOpen}
+                  onClick={() => setFilterMenuOpen((current) => !current)}
+                >
+                  <span>{selectedTagLabel}</span>
+                </button>
+
+                {filterMenuOpen ? (
+                  <div className="filter-select-menu" role="listbox" aria-label="Opciones de filtros">
+                    {selectedTag ? (
+                      <button
+                        type="button"
+                        className="filter-select-option filter-select-option-clear"
+                        onClick={() => applyTagFilter("")}
+                      >
+                        Todas las categorías
+                      </button>
+                    ) : null}
+                    {tags.map((tag) => (
+                      <button
+                        key={tag.id}
+                        type="button"
+                        className={`filter-select-option ${selectedTag === tag.name ? "active" : ""}`}
+                        onClick={() => applyTagFilter(tag.name)}
+                      >
+                        {tag.name}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
             </div>
           </div>
 

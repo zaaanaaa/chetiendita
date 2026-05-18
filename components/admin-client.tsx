@@ -106,6 +106,23 @@ function getDiscountPercentage(price: number, discountPrice: number | null) {
   return Math.round(((price - discountPrice) / price) * 100);
 }
 
+function isDiscountedPrice(price: number, discountPrice: number | null) {
+  return discountPrice !== null && discountPrice > 0 && discountPrice < price;
+}
+
+function normalizeProductDraft(input: ProductInput): ProductInput {
+  const hasDiscount = isDiscountedPrice(input.price, input.discountPrice);
+  const tags = hasDiscount
+    ? Array.from(new Set([...input.tags, "descuento"]))
+    : input.tags.filter((tag) => tag !== "descuento");
+
+  return {
+    ...input,
+    featured: hasDiscount ? true : input.featured,
+    tags,
+  };
+}
+
 function createEmptyVariantGroup(): ProductVariantGroup {
   return { name: "", options: [] };
 }
@@ -208,7 +225,7 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
 
   useEffect(() => {
     const anyModalOpen =
-      cartOpen || editorOpen || tagModalOpen || tagPickerOpen || mediaOrderOpen || !!selectedOrder || userEditorOpen || productPickerOpen;
+      cartOpen || editorOpen || tagModalOpen || tagPickerOpen || mediaOrderOpen || !!selectedOrder || userEditorOpen || productPickerOpen || mobileNavOpen;
     if (anyModalOpen) {
       document.body.classList.add("modal-open");
     } else {
@@ -228,6 +245,17 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
     }
   }, [activeTab]);
 
+  useEffect(() => {
+    const normalized = normalizeProductDraft(productForm);
+    const tagsChanged =
+      normalized.tags.length !== productForm.tags.length ||
+      normalized.tags.some((tag, index) => tag !== productForm.tags[index]);
+
+    if (normalized.featured !== productForm.featured || tagsChanged) {
+      setProductForm(normalized);
+    }
+  }, [productForm]);
+
   const inventoryProducts = useMemo(() => {
     const q = inventorySearch.trim().toLowerCase();
     const filtered = products.filter((product) => {
@@ -235,7 +263,11 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
         !q ||
         product.name.toLowerCase().includes(q) ||
         product.description.toLowerCase().includes(q);
-      const matchesTag = !inventoryTag || product.tags.includes(inventoryTag);
+      const matchesTag =
+        !inventoryTag ||
+        (inventoryTag === "descuento"
+          ? isDiscountedPrice(product.price, product.discountPrice)
+          : product.tags.includes(inventoryTag));
       return matchesSearch && matchesTag;
     });
 
@@ -883,11 +915,19 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
             </svg>
           </button>
 
+          <div
+            className={`header-sidebar-backdrop ${mobileNavOpen ? "open" : ""}`}
+            role="presentation"
+            onClick={() => setMobileNavOpen(false)}
+          />
+
           <aside className={`header-sidebar admin-header-sidebar ${mobileNavOpen ? "open" : ""}`}>
             <span className="header-sidebar-user">{user.name}</span>
             <p className="admin-sidebar-role">Administrador</p>
             <div className="header-sidebar-actions">
-              <Link href="/admin" className="sidebar-link" onClick={() => setMobileNavOpen(false)}>Panel</Link>
+              <button type="button" className="sidebar-link" onClick={() => { setActiveTab("inventory"); setMobileNavOpen(false); }}>Inventario</button>
+              <button type="button" className="sidebar-link" onClick={() => { setActiveTab("orders"); setMobileNavOpen(false); }}>Pedidos</button>
+              <button type="button" className="sidebar-link" onClick={() => { setActiveTab("users"); setMobileNavOpen(false); }}>Users</button>
               <Link href="/pedidos" className="sidebar-link" onClick={() => setMobileNavOpen(false)}>Mis pedidos</Link>
               <button
                 className="sidebar-cart"
@@ -1323,7 +1363,7 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
                     </label>
 
                     <div className="editor-inline-meta">
-                      <label className="checkbox-row"><input type="checkbox" checked={productForm.featured} onChange={(e) => setProductForm({ ...productForm, featured: e.target.checked })} />Marcar como destacado</label>
+                      <label className="checkbox-row"><input type="checkbox" checked={productForm.featured} disabled={isDiscountedPrice(productForm.price, productForm.discountPrice)} onChange={(e) => setProductForm({ ...productForm, featured: e.target.checked })} />Marcar como destacado</label>
                       <div className="editor-summary-pills">
                         <span className="session-pill">{productForm.images.length} imagen(es)</span>
                         <span className="session-pill">{productForm.variantGroups?.length || 0} categoría(s)</span>
@@ -1331,8 +1371,8 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
                       </div>
                     </div>
 
-                    {productForm.discountPrice ? (
-                      <p className="helper-text">Con descuento activo se marcará automáticamente como destacado y recibirá la etiqueta `descuento`.</p>
+                    {isDiscountedPrice(productForm.price, productForm.discountPrice) ? (
+                      <p className="helper-text">Con descuento activo se marcará automáticamente como destacado, recibirá la etiqueta `descuento` y podrá filtrarse desde catálogo e inventario.</p>
                     ) : null}
                   </section>
 
