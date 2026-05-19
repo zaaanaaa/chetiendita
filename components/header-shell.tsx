@@ -68,22 +68,30 @@ export function HeaderShell({ user, onLoginClick, onLogoutClick, onCartClick }: 
               <span className="logo-text">Che Tiendita</span>
             </Link>
 
-            <div className="navbar-menu navbar-menu-inline">
-              {primaryNavigation.map((item) => (
-                <Link key={item.href} href={item.href} className={`nav-link ${item.active ? "active" : ""}`}>
-                  {item.label}
-                </Link>
-              ))}
-              {!isLanding && !isAdminUser ? (
-                user ? (
-                  <Link href="/pedidos" className={`nav-link ${pathname === "/pedidos" ? "active" : ""}`}>
-                    Mis pedidos
+            <div className="navbar-main-right">
+              <div className="navbar-menu navbar-menu-inline">
+                {primaryNavigation.map((item) => (
+                  <Link key={item.href} href={item.href} className={`nav-link ${item.active ? "active" : ""}`}>
+                    {item.label}
                   </Link>
-                ) : (
-                  <button type="button" className="nav-link nav-link-button" onClick={onCartClick}>
-                    Carrito
-                  </button>
-                )
+                ))}
+                {!isLanding && !isAdminUser ? (
+                  user ? (
+                    <Link href="/pedidos" className={`nav-link ${pathname === "/pedidos" ? "active" : ""}`}>
+                      Mis pedidos
+                    </Link>
+                  ) : (
+                    <button type="button" className="nav-link nav-link-button" onClick={onCartClick}>
+                      Carrito
+                    </button>
+                  )
+                ) : null}
+              </div>
+
+              {!user ? (
+                <button type="button" className="nav-button login-button navbar-login-button" onClick={onLoginClick}>
+                  Ingresar
+                </button>
               ) : null}
             </div>
           </div>
@@ -109,44 +117,6 @@ export function HeaderShell({ user, onLoginClick, onLogoutClick, onCartClick }: 
           />
 
           <aside className={`header-sidebar ${sidebarOpen ? "open" : ""}`}>
-            <div className="header-sidebar-section">
-              <span className="header-sidebar-label">Navegación</span>
-              <div className="header-sidebar-actions">
-                {primaryNavigation.map((item) => (
-                  <Link
-                    key={`sidebar-${item.href}`}
-                    href={item.href}
-                    className={`sidebar-link ${item.active ? "active" : ""}`}
-                    onClick={closeSidebar}
-                  >
-                    <span>{item.label}</span>
-                  </Link>
-                ))}
-                {!isLanding && !isAdminUser ? (
-                  user ? (
-                    <Link
-                      href="/pedidos"
-                      className={`sidebar-link ${pathname === "/pedidos" ? "active" : ""}`}
-                      onClick={closeSidebar}
-                    >
-                      <span>Mis pedidos</span>
-                    </Link>
-                  ) : (
-                    <button
-                      className="sidebar-link"
-                      type="button"
-                      onClick={() => {
-                        closeSidebar();
-                        onCartClick?.();
-                      }}
-                    >
-                      <span>Carrito</span>
-                    </button>
-                  )
-                ) : null}
-              </div>
-            </div>
-
             <div className="header-sidebar-section">
               <span className="header-sidebar-label">Cuenta</span>
             {user ? <span className="header-sidebar-user">{user.name || user.username}</span> : null}

@@ -197,8 +197,8 @@ export function LoginPanel({ open, onClose }: LoginPanelProps) {
           </div>
         ) : null}
 
-        <p className="helper-text" style={{ margin: "0.75rem 0 0.25rem", fontSize: "0.85rem" }}>
-          Usuarios demo: <code style={{ background: "rgba(0,0,0,0.05)", padding: "0.15rem 0.4rem", borderRadius: "6px", fontSize: "0.82rem" }}>admin/admin123</code> y <code style={{ background: "rgba(0,0,0,0.05)", padding: "0.15rem 0.4rem", borderRadius: "6px", fontSize: "0.82rem" }}>user/user123</code>.
+        <p className="helper-text auth-demo-note">
+          Usuarios demo: <code className="auth-demo-code">admin/admin123</code> y <code className="auth-demo-code">user/user123</code>.
         </p>
 
         <form className="stack-form" onSubmit={submitForm}>
@@ -260,7 +260,7 @@ export function LoginPanel({ open, onClose }: LoginPanelProps) {
             </>
           ) : null}
 
-          <button className="primary-button" type="submit" disabled={isPending} style={{ width: "100%", marginTop: "0.25rem" }}>
+          <button className="primary-button auth-submit-button" type="submit" disabled={isPending}>
             {isPending
               ? "Procesando..."
               : mode === "login"

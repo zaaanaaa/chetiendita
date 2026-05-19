@@ -407,6 +407,7 @@ export function validateOrderInput(input: OrderInput) {
   return {
     ok: true as const,
     order: {
+      userId: input.userId == null ? null : Number(input.userId || 0),
       customerName: (input.customerName || "").trim(),
       customerPhone: (input.customerPhone || "").trim(),
       notes: (input.notes || "").trim(),
@@ -436,6 +437,7 @@ export function validateOrderUpdateInput(input: OrderUpdateInput) {
   return {
     ok: true as const,
     order: {
+      userId: input.userId == null ? null : Number(input.userId || 0),
       customerName,
       customerPhone: (input.customerPhone || "").trim(),
       notes: (input.notes || "").trim(),

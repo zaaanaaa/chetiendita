@@ -1,19 +1,16 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useRef, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { useCart } from "@/components/cart-context";
+import { ProductCarouselItem, ProductImageCarousel } from "@/components/product-image-carousel";
 import { Product } from "@/lib/types";
 
 interface ProductModalProps {
   product: Product;
   onClose: () => void;
 }
-
-type ProductMediaItem =
-  | { type: "image"; src: string }
-  | { type: "video"; src: string; isYouTube: boolean };
 
 function formatCurrency(value: number) {
   return new Intl.NumberFormat("es-AR", {
@@ -67,6 +64,7 @@ function getEmbeddedVideoUrl(value: string | null) {
 export function ProductModal({ product, onClose }: ProductModalProps) {
   const { addItem } = useCart();
   const router = useRouter();
+  const lockedScrollYRef = useRef(0);
   const [quantity, setQuantity] = useState(1);
   const [added, setAdded] = useState(false);
   const [selectedOptions, setSelectedOptions] = useState<Record<string, string>>({});
@@ -74,27 +72,70 @@ export function ProductModal({ product, onClose }: ProductModalProps) {
 
   const effectivePrice = getEffectivePrice(product);
   const discountPercentage = getDiscountPercentage(product);
-  const mediaItems = useMemo<ProductMediaItem[]>(() => {
-    const items: ProductMediaItem[] = product.images.map((image) => ({ type: "image", src: image }));
+  const mediaItems = useMemo<ProductCarouselItem[]>(() => {
+    const imageSources = product.images.length > 0 ? product.images : [product.image];
+    const items: ProductCarouselItem[] = imageSources.map((image, index) => ({
+      type: "image",
+      src: image,
+      alt: `${product.name} - imagen ${index + 1}`,
+    }));
     const productVideos =
-      product.videos?.length
-        ? product.videos.map((video) => video.url)
+      product.videos?.length > 0
+        ? product.videos
         : product.video
-          ? [product.video]
+          ? [{ url: product.video, label: "Video" }]
           : [];
+
     for (const video of productVideos) {
-      const embeddedVideoUrl = getEmbeddedVideoUrl(video);
+      const embeddedVideoUrl = getEmbeddedVideoUrl(video.url);
       if (embeddedVideoUrl) {
         items.push({
           type: "video",
           src: embeddedVideoUrl,
+          alt: `${product.name} - video`,
           isYouTube: embeddedVideoUrl.includes("youtube.com/embed/"),
+          label: video.label,
         });
       }
     }
     return items;
-  }, [product.images, product.video, product.videos]);
-  const selectedMedia = mediaItems[selectedImageIndex] || mediaItems[0] || { type: "image", src: product.image };
+  }, [product.image, product.images, product.name, product.video, product.videos]);
+  const selectedMedia = mediaItems[selectedImageIndex] || mediaItems[0];
+
+  useEffect(() => {
+    const bodyStyle = document.body.style;
+    const htmlStyle = document.documentElement.style;
+    const previousBodyPosition = bodyStyle.position;
+    const previousBodyTop = bodyStyle.top;
+    const previousBodyLeft = bodyStyle.left;
+    const previousBodyRight = bodyStyle.right;
+    const previousBodyWidth = bodyStyle.width;
+    const previousBodyOverflow = bodyStyle.overflow;
+    const previousHtmlOverflow = htmlStyle.overflow;
+    const previousHtmlOverscroll = htmlStyle.overscrollBehavior;
+
+    lockedScrollYRef.current = window.scrollY;
+    bodyStyle.position = "fixed";
+    bodyStyle.top = `-${lockedScrollYRef.current}px`;
+    bodyStyle.left = "0";
+    bodyStyle.right = "0";
+    bodyStyle.width = "100%";
+    bodyStyle.overflow = "hidden";
+    htmlStyle.overflow = "hidden";
+    htmlStyle.overscrollBehavior = "none";
+
+    return () => {
+      bodyStyle.position = previousBodyPosition;
+      bodyStyle.top = previousBodyTop;
+      bodyStyle.left = previousBodyLeft;
+      bodyStyle.right = previousBodyRight;
+      bodyStyle.width = previousBodyWidth;
+      bodyStyle.overflow = previousBodyOverflow;
+      htmlStyle.overflow = previousHtmlOverflow;
+      htmlStyle.overscrollBehavior = previousHtmlOverscroll;
+      window.scrollTo(0, lockedScrollYRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     const defaults = Object.fromEntries(
@@ -125,7 +166,7 @@ export function ProductModal({ product, onClose }: ProductModalProps) {
       productName: product.name,
       variant: variantLabel,
       unitPrice: effectivePrice,
-      image: selectedMedia.type === "image" ? selectedMedia.src : product.images[0] || product.image,
+      image: selectedMedia?.type === "image" ? selectedMedia.src : product.images[0] || product.image,
       quantity,
     });
     setAdded(true);
@@ -152,84 +193,12 @@ export function ProductModal({ product, onClose }: ProductModalProps) {
 
         <div className="product-modal-layout">
           <div className="product-modal-image">
-            <div className="product-modal-media-frame">
-              {selectedMedia.type === "video" ? (
-                selectedMedia.isYouTube ? (
-                  <iframe
-                    src={selectedMedia.src}
-                    title={`${product.name} video`}
-                    className="product-video-frame product-video-frame-main"
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                    allowFullScreen
-                  />
-                ) : (
-                  <video
-                    src={selectedMedia.src}
-                    className="product-video-frame product-video-frame-main"
-                    controls
-                    playsInline
-                  />
-                )
-              ) : (
-                <img
-                  src={selectedMedia.src}
-                  alt={product.name}
-                  className="product-modal-media-tag"
-                />
-              )}
-            </div>
-
-            {mediaItems.length > 1 ? (
-              <>
-                <div className="product-gallery-controls">
-                  <button
-                    type="button"
-                    className="gallery-nav-btn"
-                    onClick={() =>
-                      setSelectedImageIndex((current) =>
-                        current === 0 ? mediaItems.length - 1 : current - 1,
-                      )
-                    }
-                  >
-                    ‹
-                  </button>
-                  <button
-                    type="button"
-                    className="gallery-nav-btn"
-                    onClick={() =>
-                      setSelectedImageIndex((current) => (current + 1) % mediaItems.length)
-                    }
-                  >
-                    ›
-                  </button>
-                </div>
-
-                <div className="product-gallery-strip">
-                  {mediaItems.map((item, index) => (
-                    <button
-                      key={`${item.type}-${item.src}-${index}`}
-                      type="button"
-                      className={`gallery-thumb ${selectedImageIndex === index ? "active" : ""}`}
-                      onClick={() => setSelectedImageIndex(index)}
-                      aria-label={item.type === "video" ? `Ver video de ${product.name}` : `Ver imagen ${index + 1}`}
-                    >
-                      {item.type === "video" ? (
-                        <span className="gallery-thumb-video">
-                          <span className="gallery-thumb-play">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                              <path d="M8 5v14l11-7z" />
-                            </svg>
-                          </span>
-                          <span className="gallery-thumb-video-label">Video</span>
-                        </span>
-                      ) : (
-                        <img src={item.src} alt={`${product.name} ${index + 1}`} className="gallery-thumb-tag" />
-                      )}
-                    </button>
-                  ))}
-                </div>
-              </>
-            ) : null}
+            <ProductImageCarousel
+              items={mediaItems}
+              activeIndex={selectedImageIndex}
+              onActiveIndexChange={setSelectedImageIndex}
+              productName={product.name}
+            />
           </div>
 
           <div className="product-modal-info">

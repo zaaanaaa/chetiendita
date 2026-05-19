@@ -56,6 +56,7 @@ export async function PUT(
   }
 
   const order = updateOrder(orderId, {
+    userId: validation.order.userId,
     customerName: validation.order.customerName,
     customerPhone: validation.order.customerPhone,
     notes: validation.order.notes,

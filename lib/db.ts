@@ -981,12 +981,12 @@ function calculateOrderTotal(items: OrderInput["items"]) {
   return items.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
 }
 
-export function createOrder(input: OrderInput & { total: number; userId?: number | null }) {
+export function createOrder(input: OrderInput & { total: number; userId?: number | null; status?: OrderStatus }) {
   const result = db
     .prepare(
       `
       INSERT INTO orders(user_id, customer_name, customer_phone, notes, status, total)
-      VALUES (?, ?, ?, ?, 'pending', ?)
+      VALUES (?, ?, ?, ?, ?, ?)
       `,
     )
     .run(
@@ -994,6 +994,7 @@ export function createOrder(input: OrderInput & { total: number; userId?: number
       (input.customerName || "").trim() || "Cliente",
       (input.customerPhone || "").trim(),
       (input.notes || "").trim(),
+      input.status ?? "pending",
       input.total,
     );
 
@@ -1032,10 +1033,11 @@ export function updateOrder(orderId: number, input: OrderUpdateInput) {
     db.prepare(
       `
       UPDATE orders
-      SET customer_name = ?, customer_phone = ?, notes = ?, status = ?, total = ?
+      SET user_id = ?, customer_name = ?, customer_phone = ?, notes = ?, status = ?, total = ?
       WHERE id = ?
       `,
     ).run(
+      input.userId ?? null,
       input.customerName,
       input.customerPhone,
       input.notes,

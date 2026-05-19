@@ -151,7 +151,7 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
             <p className="whatsapp-number-text">
               O escribinos directamente al <strong>+54 9 3515523846</strong>
             </p>
-            <button className="secondary-button" type="button" onClick={handleClose} style={{ marginTop: "0.75rem", width: "100%" }}>
+            <button className="secondary-button checkout-close-button" type="button" onClick={handleClose}>
               Cerrar
             </button>
           </div>

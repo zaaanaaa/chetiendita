@@ -22,13 +22,28 @@ export async function POST(request: Request) {
     return jsonError(validation.error, 400);
   }
 
+  const requestedUserId =
+    typeof validation.order.userId === "number" && validation.order.userId > 0
+      ? validation.order.userId
+      : null;
+
+  const isAdmin = user.role === "admin";
+  const effectiveUserId = isAdmin ? requestedUserId : user.id;
+  const customerName = isAdmin
+    ? validation.order.customerName || "Cliente"
+    : validation.order.customerName || user.name || user.username || "Cliente";
+  const customerPhone = isAdmin
+    ? validation.order.customerPhone || ""
+    : validation.order.customerPhone || user.phone || "";
+
   const order = createOrder({
-    userId: user.id,
-    customerName: validation.order.customerName || user.name || user.username || "Cliente",
-    customerPhone: validation.order.customerPhone || user.phone || "",
+    userId: effectiveUserId,
+    customerName,
+    customerPhone,
     notes: validation.order.notes,
     items: validation.order.items,
     total: validation.order.total,
+    status: isAdmin ? "accepted" : "pending",
   });
 
   return NextResponse.json({ order }, { status: 201 });

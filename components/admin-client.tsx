@@ -140,6 +140,7 @@ function createEmptyOrderItem(): OrderItemInput {
 
 function createOrderDraft(order: Order): OrderUpdateInput {
   return {
+    userId: order.userId,
     customerName: order.customerName,
     customerPhone: order.customerPhone,
     notes: order.notes,
@@ -155,13 +156,29 @@ function createOrderDraft(order: Order): OrderUpdateInput {
   };
 }
 
+function createEmptyOrderDraft(): OrderUpdateInput {
+  return {
+    userId: null,
+    customerName: "",
+    customerPhone: "",
+    notes: "",
+    status: "accepted",
+    items: [],
+  };
+}
+
 function calculateDraftTotal(items: OrderItemInput[]) {
   return items.reduce((sum, item) => sum + Number(item.unitPrice || 0) * Number(item.quantity || 0), 0);
 }
 
 function createOrderItemFromProduct(product: Product): OrderItemInput {
-  const firstGroup = product.variantGroups[0];
-  const defaultVariant = firstGroup?.options[0] ? `${firstGroup.name}: ${firstGroup.options[0]}` : "";
+  const defaultVariant = product.variantGroups
+    .map((group) => {
+      const firstOption = group.options[0];
+      return firstOption ? `${group.name}: ${firstOption}` : null;
+    })
+    .filter(Boolean)
+    .join(" · ");
 
   return {
     productId: product.id,
@@ -171,6 +188,40 @@ function createOrderItemFromProduct(product: Product): OrderItemInput {
     unitPrice: getEffectivePrice(product),
     image: product.images[0] || product.image,
   };
+}
+
+function parseVariantSelection(variant: string, variantGroups: ProductVariantGroup[]) {
+  const selections = new Map<string, string>();
+
+  for (const segment of variant.split("·")) {
+    const [rawName, ...rawValueParts] = segment.split(":");
+    const name = rawName?.trim().toLowerCase();
+    const value = rawValueParts.join(":").trim();
+    if (!name || !value) {
+      continue;
+    }
+
+    selections.set(name, value);
+  }
+
+  return variantGroups.reduce<Record<string, string>>((acc, group) => {
+    const selectedOption = selections.get(group.name.trim().toLowerCase());
+    if (selectedOption) {
+      acc[group.name] = selectedOption;
+    }
+
+    return acc;
+  }, {});
+}
+
+function buildVariantSelection(variantGroups: ProductVariantGroup[], selections: Record<string, string>) {
+  return variantGroups
+    .map((group) => {
+      const selectedOption = selections[group.name];
+      return selectedOption ? `${group.name}: ${selectedOption}` : null;
+    })
+    .filter(Boolean)
+    .join(" · ");
 }
 
 function moveArrayItem<T>(items: T[], fromIndex: number, toIndex: number) {
@@ -220,12 +271,23 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [productPickerOpen, setProductPickerOpen] = useState(false);
   const [orderProductSearch, setOrderProductSearch] = useState("");
+  const [orderUserSearch, setOrderUserSearch] = useState("");
+  const [orderUserMenuOpen, setOrderUserMenuOpen] = useState(false);
   const [expandedOrderId, setExpandedOrderId] = useState<number | null>(null);
   const [isPending, startTransition] = useTransition();
 
   useEffect(() => {
     const anyModalOpen =
-      cartOpen || editorOpen || tagModalOpen || tagPickerOpen || mediaOrderOpen || !!selectedOrder || userEditorOpen || productPickerOpen || mobileNavOpen;
+      cartOpen ||
+      editorOpen ||
+      tagModalOpen ||
+      tagPickerOpen ||
+      mediaOrderOpen ||
+      !!selectedOrder ||
+      !!orderDraft ||
+      userEditorOpen ||
+      productPickerOpen ||
+      mobileNavOpen;
     if (anyModalOpen) {
       document.body.classList.add("modal-open");
     } else {
@@ -234,11 +296,12 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
     return () => {
       document.body.classList.remove("modal-open");
     };
-  }, [cartOpen, editorOpen, tagModalOpen, tagPickerOpen, mediaOrderOpen, selectedOrder, userEditorOpen, productPickerOpen]);
+  }, [cartOpen, editorOpen, tagModalOpen, tagPickerOpen, mediaOrderOpen, selectedOrder, orderDraft, userEditorOpen, productPickerOpen, mobileNavOpen]);
 
   useEffect(() => {
     if (activeTab === "orders") {
       loadOrders();
+      loadUsers("");
     }
     if (activeTab === "users") {
       loadUsers(userSearch);
@@ -312,6 +375,28 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
       );
     });
   }, [orderProductSearch, products]);
+
+  const orderAssignableUsers = useMemo(() => {
+    const normalizedSearch = orderUserSearch.trim().toLowerCase();
+
+    return users.filter((listedUser) => {
+      if (!normalizedSearch) {
+        return true;
+      }
+
+      return (
+        listedUser.name.toLowerCase().includes(normalizedSearch) ||
+        listedUser.username.toLowerCase().includes(normalizedSearch) ||
+        listedUser.email.toLowerCase().includes(normalizedSearch) ||
+        listedUser.phone.toLowerCase().includes(normalizedSearch)
+      );
+    });
+  }, [orderUserSearch, users]);
+
+  const selectedOrderUser = useMemo(
+    () => (orderDraft?.userId ? users.find((listedUser) => listedUser.id === orderDraft.userId) || null : null),
+    [orderDraft?.userId, users],
+  );
 
   async function refreshAdminData() {
     const [productResponse, tagResponse] = await Promise.all([
@@ -700,6 +785,21 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
     setSelectedOrder(order);
     setOrderDraft(createOrderDraft(order));
     setOrderMessage("");
+    setOrderUserSearch("");
+    setOrderUserMenuOpen(false);
+  }
+
+  function openCreateOrderEditor() {
+    setSelectedOrder(null);
+    setOrderDraft(createEmptyOrderDraft());
+    setOrderMessage("");
+    setOrderProductSearch("");
+    setOrderUserSearch("");
+    setOrderUserMenuOpen(false);
+    setProductPickerOpen(false);
+    if (users.length === 0) {
+      loadUsers("");
+    }
   }
 
   function closeOrderEditor() {
@@ -708,10 +808,34 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
     setOrderMessage("");
     setProductPickerOpen(false);
     setOrderProductSearch("");
+    setOrderUserSearch("");
+    setOrderUserMenuOpen(false);
   }
 
   function updateOrderField<K extends keyof OrderUpdateInput>(field: K, value: OrderUpdateInput[K]) {
     setOrderDraft((current) => (current ? { ...current, [field]: value } : current));
+  }
+
+  function assignOrderUser(value: string) {
+    setOrderDraft((current) => {
+      if (!current) {
+        return current;
+      }
+
+      const nextUserId = value ? Number(value) : null;
+      const assignedUser = nextUserId ? users.find((candidate) => candidate.id === nextUserId) : null;
+
+      return {
+        ...current,
+        userId: nextUserId,
+        customerName: assignedUser?.name || current.customerName || "Cliente",
+        customerPhone: assignedUser?.phone || current.customerPhone,
+      };
+    });
+
+    const assignedUser = value ? users.find((candidate) => candidate.id === Number(value)) : null;
+    setOrderUserSearch(assignedUser ? `${assignedUser.name} (@${assignedUser.username})` : "");
+    setOrderUserMenuOpen(false);
   }
 
   function updateOrderItem(index: number, field: keyof OrderItemInput, value: string | number) {
@@ -736,6 +860,34 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
           };
 
           return nextItem;
+        }),
+      };
+    });
+  }
+
+  function updateOrderItemVariantSelection(index: number, product: Product, groupName: string, option: string) {
+    setOrderDraft((current) => {
+      if (!current) {
+        return current;
+      }
+
+      return {
+        ...current,
+        items: current.items.map((item, currentIndex) => {
+          if (currentIndex !== index) {
+            return item;
+          }
+
+          const currentSelections = parseVariantSelection(item.variant, product.variantGroups);
+          const nextSelections = {
+            ...currentSelections,
+            [groupName]: option,
+          };
+
+          return {
+            ...item,
+            variant: buildVariantSelection(product.variantGroups, nextSelections),
+          };
         }),
       };
     });
@@ -766,7 +918,7 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
   }
 
   function saveOrderChanges(nextStatus?: OrderStatus) {
-    if (!selectedOrder || !orderDraft) {
+    if (!orderDraft) {
       return;
     }
 
@@ -777,8 +929,8 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
         status: nextStatus ?? orderDraft.status,
       };
 
-      const response = await fetch(`/api/orders/${selectedOrder.id}`, {
-        method: "PUT",
+      const response = await fetch(selectedOrder ? `/api/orders/${selectedOrder.id}` : "/api/orders", {
+        method: selectedOrder ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
@@ -925,9 +1077,6 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
             <span className="header-sidebar-user">{user.name}</span>
             <p className="admin-sidebar-role">Administrador</p>
             <div className="header-sidebar-actions">
-              <button type="button" className="sidebar-link" onClick={() => { setActiveTab("inventory"); setMobileNavOpen(false); }}>Inventario</button>
-              <button type="button" className="sidebar-link" onClick={() => { setActiveTab("orders"); setMobileNavOpen(false); }}>Pedidos</button>
-              <button type="button" className="sidebar-link" onClick={() => { setActiveTab("users"); setMobileNavOpen(false); }}>Users</button>
               <Link href="/pedidos" className="sidebar-link" onClick={() => setMobileNavOpen(false)}>Mis pedidos</Link>
               <button
                 className="sidebar-cart"
@@ -1033,7 +1182,10 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
                 <p className="section-overline">Pedidos</p>
                 <h2>Gestión de pedidos</h2>
               </div>
-              <button className="secondary-button" type="button" onClick={loadOrders}>Actualizar</button>
+              <div className="inline-actions">
+                <button className="primary-button" type="button" onClick={openCreateOrderEditor}>Nuevo pedido</button>
+                <button className="secondary-button" type="button" onClick={loadOrders}>Actualizar</button>
+              </div>
             </div>
 
             <section className="order-board order-board-stacked">
@@ -1325,203 +1477,205 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
               <button className="icon-button" type="button" onClick={resetProductForm} aria-label="Cerrar">×</button>
             </div>
 
-            <form className="product-editor-shell" onSubmit={submitProduct}>
-              <div className="product-editor-columns">
-                <div className="product-editor-column product-editor-column-main">
-                  <section className="editor-section editor-section-priority">
-                    <div className="editor-section-head">
-                      <div>
-                        <p className="section-overline">Base</p>
-                        <h3 className="subsection-title">Información principal</h3>
+            <div className="product-editor-scroll">
+              <form className="product-editor-shell" onSubmit={submitProduct}>
+                <div className="product-editor-columns">
+                  <div className="product-editor-column product-editor-column-main">
+                    <section className="editor-section editor-section-priority">
+                      <div className="editor-section-head">
+                        <div>
+                          <p className="section-overline">Base</p>
+                          <h3 className="subsection-title">Información principal</h3>
+                        </div>
                       </div>
-                    </div>
 
-                    <div className="editor-grid editor-grid-compact">
-                      <label className="stack-form compact-field product-name-field">
-                        <span className="field-label">Nombre del producto</span>
-                        <input type="text" value={productForm.name} onChange={(e) => setProductForm({ ...productForm, name: e.target.value })} placeholder="Nombre" required />
-                      </label>
+                      <div className="editor-grid editor-grid-compact">
+                        <label className="stack-form compact-field product-name-field">
+                          <span className="field-label">Nombre del producto</span>
+                          <input type="text" value={productForm.name} onChange={(e) => setProductForm({ ...productForm, name: e.target.value })} placeholder="Nombre" required />
+                        </label>
+                        <label className="stack-form compact-field">
+                          <span className="field-label">Precio normal</span>
+                          <div className="currency-input-wrap compact-price-field">
+                            <span>$</span>
+                            <input type="number" min={1} value={productForm.price || ""} onChange={(e) => setProductForm({ ...productForm, price: Number(e.target.value) })} placeholder="Precio normal" required />
+                          </div>
+                        </label>
+                        <label className="stack-form compact-field">
+                          <span className="field-label">Precio con descuento</span>
+                          <div className="currency-input-wrap compact-price-field">
+                            <span>$</span>
+                            <input type="number" min={0} value={productForm.discountPrice || ""} onChange={(e) => setProductForm({ ...productForm, discountPrice: e.target.value ? Number(e.target.value) : null })} placeholder="Precio con descuento" />
+                          </div>
+                        </label>
+                      </div>
+
                       <label className="stack-form compact-field">
-                        <span className="field-label">Precio normal</span>
-                        <div className="currency-input-wrap compact-price-field">
-                          <span>$</span>
-                          <input type="number" min={1} value={productForm.price || ""} onChange={(e) => setProductForm({ ...productForm, price: Number(e.target.value) })} placeholder="Precio normal" required />
-                        </div>
+                        <span className="field-label">Descripción</span>
+                        <textarea rows={4} value={productForm.description} onChange={(e) => setProductForm({ ...productForm, description: e.target.value })} placeholder="Descripción" required />
                       </label>
-                      <label className="stack-form compact-field">
-                        <span className="field-label">Precio con descuento</span>
-                        <div className="currency-input-wrap compact-price-field">
-                          <span>$</span>
-                          <input type="number" min={0} value={productForm.discountPrice || ""} onChange={(e) => setProductForm({ ...productForm, discountPrice: e.target.value ? Number(e.target.value) : null })} placeholder="Precio con descuento" />
-                        </div>
-                      </label>
-                    </div>
 
-                    <label className="stack-form compact-field">
-                      <span className="field-label">Descripción</span>
-                      <textarea rows={4} value={productForm.description} onChange={(e) => setProductForm({ ...productForm, description: e.target.value })} placeholder="Descripción" required />
-                    </label>
-
-                    <div className="editor-inline-meta">
-                      <label className="checkbox-row"><input type="checkbox" checked={productForm.featured} disabled={isDiscountedPrice(productForm.price, productForm.discountPrice)} onChange={(e) => setProductForm({ ...productForm, featured: e.target.checked })} />Marcar como destacado</label>
-                      <div className="editor-summary-pills">
-                        <span className="session-pill">{productForm.images.length} imagen(es)</span>
-                        <span className="session-pill">{productForm.variantGroups?.length || 0} categoría(s)</span>
-                        <span className="session-pill">{productForm.tags.length} etiqueta(s)</span>
-                      </div>
-                    </div>
-
-                    {isDiscountedPrice(productForm.price, productForm.discountPrice) ? (
-                      <p className="helper-text">Con descuento activo se marcará automáticamente como destacado, recibirá la etiqueta `descuento` y podrá filtrarse desde catálogo e inventario.</p>
-                    ) : null}
-                  </section>
-
-                  <section className="editor-section">
-                    <div className="inline-heading">
-                      <div><p className="section-overline">Variantes</p><h3 className="subsection-title">Opciones del producto</h3></div>
-                      <button className="secondary-button" type="button" onClick={addVariantGroup}>Agregar categoría</button>
-                    </div>
-                    <p className="helper-text">Usá categorías como color, talle, material o modelo para que el pedido quede bien cargado.</p>
-
-                    <div className="variant-group-editor-list">
-                      {(productForm.variantGroups || []).map((group, groupIndex) => (
-                        <div key={`${group.name}-${groupIndex}`} className="variant-group-editor">
-                          <div className="variant-group-editor-head">
-                            <input type="text" value={group.name} onChange={(e) => updateVariantGroupName(groupIndex, e.target.value)} placeholder="Ej: Color" />
-                            <button className="danger-button" type="button" onClick={() => removeVariantGroup(groupIndex)}>Eliminar</button>
-                          </div>
-                          <div className="variant-editor">
-                            <input type="text" value={variantOptionDrafts[groupIndex] || ""} onChange={(e) => updateVariantOptionDraft(groupIndex, e.target.value)} placeholder="Ej: Negro" onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addVariantOption(groupIndex); } }} />
-                            <button className="secondary-button" type="button" onClick={() => addVariantOption(groupIndex)}>Agregar opción</button>
-                          </div>
-                          <div className="tag-row">
-                            {group.options.map((option) => (
-                              <button key={option} type="button" className="tag-chip tag-chip-action" onClick={() => removeVariantOption(groupIndex, option)}>
-                                {option} ×
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </section>
-                </div>
-
-                <div className="product-editor-column product-editor-column-side">
-                  <section className="editor-section">
-                    <div className="inline-heading">
-                      <div><p className="section-overline">Imágenes</p><h3 className="subsection-title">Galería del producto</h3></div>
-                      <button className="secondary-button" type="button" onClick={() => setMediaOrderOpen(true)}>Ordenar medios</button>
-                    </div>
-
-                    <div className="editor-dual-source">
-                      <div className="variant-group-editor">
-                        <div className="editor-source-label">Agregar por URL</div>
-                        <div className="variant-editor">
-                          <input type="url" value={urlImageDraft} onChange={(e) => setUrlImageDraft(e.target.value)} placeholder="Pegá una URL de imagen" onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addImageUrl(); } }} />
-                          <button className="secondary-button" type="button" onClick={addImageUrl}>Agregar imagen</button>
+                      <div className="editor-inline-meta">
+                        <label className="checkbox-row"><input type="checkbox" checked={productForm.featured} disabled={isDiscountedPrice(productForm.price, productForm.discountPrice)} onChange={(e) => setProductForm({ ...productForm, featured: e.target.checked })} />Marcar como destacado</label>
+                        <div className="editor-summary-pills">
+                          <span className="session-pill">{productForm.images.length} imagen(es)</span>
+                          <span className="session-pill">{productForm.variantGroups?.length || 0} categoría(s)</span>
+                          <span className="session-pill">{productForm.tags.length} etiqueta(s)</span>
                         </div>
                       </div>
 
-                      <label className="file-upload-field file-upload-field-multi">
-                        <span>Subir desde tu ordenador</span>
-                        <input type="file" accept="image/*" multiple onChange={handleImageUpload} />
-                        <strong>Seleccionar archivos</strong>
-                      </label>
-                    </div>
+                      {isDiscountedPrice(productForm.price, productForm.discountPrice) ? (
+                        <p className="helper-text">Con descuento activo se marcará automáticamente como destacado, recibirá la etiqueta `descuento` y podrá filtrarse desde catálogo e inventario.</p>
+                      ) : null}
+                    </section>
 
-                    <div className="editor-gallery-grid">
-                      {(productForm.images || []).map((image, index) => (
-                        <div key={`${image}-${index}`} className="editor-gallery-card">
-                          <div className="editor-image-preview-media" style={{ backgroundImage: `url(${image})` }} />
-                          <div className="editor-media-footer editor-media-footer-simple">
-                            <button className="editor-remove-btn" type="button" onClick={() => removeImage(index)}>Quitar</button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </section>
-
-                  <section className="editor-section editor-section-video">
-                    <div className="inline-heading">
-                      <div><p className="section-overline">Video</p><h3 className="subsection-title">Complemento visual</h3></div>
-                    </div>
-
-                    <div className="editor-dual-source">
-                      <div className="variant-group-editor">
-                        <div className="editor-source-label">Agregar por URL</div>
-                        <div className="stack-form">
-                          <input
-                            type="text"
-                            value={urlVideoLabelDraft}
-                            onChange={(e) => setUrlVideoLabelDraft(e.target.value)}
-                            placeholder="Nombre del video"
-                          />
-                          <div className="variant-editor">
-                            <input
-                              type="url"
-                              value={urlVideoDraft}
-                              onChange={(e) => setUrlVideoDraft(e.target.value)}
-                              placeholder="Pegá una URL de YouTube o video"
-                              onBlur={saveVideoUrl}
-                            />
-                            <button className="secondary-button" type="button" onClick={saveVideoUrl}>Guardar video</button>
-                          </div>
-                        </div>
+                    <section className="editor-section">
+                      <div className="inline-heading">
+                        <div><p className="section-overline">Variantes</p><h3 className="subsection-title">Opciones del producto</h3></div>
+                        <button className="secondary-button" type="button" onClick={addVariantGroup}>Agregar categoría</button>
                       </div>
+                      <p className="helper-text">Usá categorías como color, talle, material o modelo para que el pedido quede bien cargado.</p>
 
-                      <label className="file-upload-field">
-                        <span>Subir desde tu ordenador</span>
-                        <input type="file" accept="video/*" multiple onChange={handleVideoUpload} />
-                        <strong>Seleccionar archivo</strong>
-                      </label>
-                    </div>
-
-                    {productForm.videos.length > 0 ? (
-                      <div className="editor-video-list">
-                        {productForm.videos.map((video, index) => (
-                          <div key={`${video.url}-${index}`} className="editor-video-card">
-                            <div className="editor-media-footer editor-media-footer-simple">
-                              <span className="editor-video-inline-label">{video.label || `Video ${index + 1}`}</span>
-                              <button className="editor-remove-btn" type="button" onClick={() => removeVideo(index)}>
-                                Quitar
-                              </button>
+                      <div className="variant-group-editor-list">
+                        {(productForm.variantGroups || []).map((group, groupIndex) => (
+                          <div key={`${group.name}-${groupIndex}`} className="variant-group-editor">
+                            <div className="variant-group-editor-head">
+                              <input type="text" value={group.name} onChange={(e) => updateVariantGroupName(groupIndex, e.target.value)} placeholder="Ej: Color" />
+                              <button className="danger-button" type="button" onClick={() => removeVariantGroup(groupIndex)}>Eliminar</button>
+                            </div>
+                            <div className="variant-editor">
+                              <input type="text" value={variantOptionDrafts[groupIndex] || ""} onChange={(e) => updateVariantOptionDraft(groupIndex, e.target.value)} placeholder="Ej: Negro" onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addVariantOption(groupIndex); } }} />
+                              <button className="secondary-button" type="button" onClick={() => addVariantOption(groupIndex)}>Agregar opción</button>
+                            </div>
+                            <div className="tag-row">
+                              {group.options.map((option) => (
+                                <button key={option} type="button" className="tag-chip tag-chip-action" onClick={() => removeVariantOption(groupIndex, option)}>
+                                  {option} ×
+                                </button>
+                              ))}
                             </div>
                           </div>
                         ))}
                       </div>
-                    ) : (
-                      <p className="helper-text">Los videos se mostrarán dentro del detalle del producto junto a las imágenes.</p>
-                    )}
-                  </section>
+                    </section>
+                  </div>
 
-                  <section className="editor-section">
-                    <div className="inline-heading">
-                      <div><p className="section-overline">Etiquetas</p><h3 className="subsection-title">Clasificación</h3></div>
-                      <button className="secondary-button" type="button" onClick={() => setTagPickerOpen(true)}>Elegir etiquetas</button>
-                    </div>
-                    <p className="helper-text">Usalas para agrupar, filtrar y destacar mejor los productos.</p>
-                    <div className="tag-selection-summary">
-                      {productForm.tags.length > 0 ? (
-                        <div className="tag-row">{productForm.tags.map((tag) => <span key={tag} className="tag-chip">#{tag}</span>)}</div>
-                      ) : (<p className="helper-text">No hay etiquetas seleccionadas.</p>)}
-                    </div>
-                  </section>
-                </div>
-              </div>
+                  <div className="product-editor-column product-editor-column-side">
+                    <section className="editor-section">
+                      <div className="inline-heading">
+                        <div><p className="section-overline">Imágenes</p><h3 className="subsection-title">Galería del producto</h3></div>
+                        <button className="secondary-button" type="button" onClick={() => setMediaOrderOpen(true)}>Ordenar medios</button>
+                      </div>
 
-              <div className="product-editor-footer">
-                <div className="product-editor-footer-copy">
-                  <strong>{editingId ? "Editando producto" : "Nuevo producto"}</strong>
-                  <span>Guardá cuando ya estén completos datos, medios y clasificación.</span>
+                      <div className="editor-dual-source">
+                        <div className="variant-group-editor">
+                          <div className="editor-source-label">Agregar por URL</div>
+                          <div className="variant-editor">
+                            <input type="url" value={urlImageDraft} onChange={(e) => setUrlImageDraft(e.target.value)} placeholder="Pegá una URL de imagen" onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addImageUrl(); } }} />
+                            <button className="secondary-button" type="button" onClick={addImageUrl}>Agregar imagen</button>
+                          </div>
+                        </div>
+
+                        <label className="file-upload-field file-upload-field-multi">
+                          <span>Subir desde tu ordenador</span>
+                          <input type="file" accept="image/*" multiple onChange={handleImageUpload} />
+                          <strong>Seleccionar archivos</strong>
+                        </label>
+                      </div>
+
+                      <div className="editor-gallery-grid">
+                        {(productForm.images || []).map((image, index) => (
+                          <div key={`${image}-${index}`} className="editor-gallery-card">
+                            <div className="editor-image-preview-media" style={{ backgroundImage: `url(${image})` }} />
+                            <div className="editor-media-footer editor-media-footer-simple">
+                              <button className="editor-remove-btn" type="button" onClick={() => removeImage(index)}>Quitar</button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </section>
+
+                    <section className="editor-section editor-section-video">
+                      <div className="inline-heading">
+                        <div><p className="section-overline">Video</p><h3 className="subsection-title">Complemento visual</h3></div>
+                      </div>
+
+                      <div className="editor-dual-source">
+                        <div className="variant-group-editor">
+                          <div className="editor-source-label">Agregar por URL</div>
+                          <div className="stack-form">
+                            <input
+                              type="text"
+                              value={urlVideoLabelDraft}
+                              onChange={(e) => setUrlVideoLabelDraft(e.target.value)}
+                              placeholder="Nombre del video"
+                            />
+                            <div className="variant-editor">
+                              <input
+                                type="url"
+                                value={urlVideoDraft}
+                                onChange={(e) => setUrlVideoDraft(e.target.value)}
+                                placeholder="Pegá una URL de YouTube o video"
+                                onBlur={saveVideoUrl}
+                              />
+                              <button className="secondary-button" type="button" onClick={saveVideoUrl}>Guardar video</button>
+                            </div>
+                          </div>
+                        </div>
+
+                        <label className="file-upload-field">
+                          <span>Subir desde tu ordenador</span>
+                          <input type="file" accept="video/*" multiple onChange={handleVideoUpload} />
+                          <strong>Seleccionar archivo</strong>
+                        </label>
+                      </div>
+
+                      {productForm.videos.length > 0 ? (
+                        <div className="editor-video-list">
+                          {productForm.videos.map((video, index) => (
+                            <div key={`${video.url}-${index}`} className="editor-video-card">
+                              <div className="editor-media-footer editor-media-footer-simple">
+                                <span className="editor-video-inline-label">{video.label || `Video ${index + 1}`}</span>
+                                <button className="editor-remove-btn" type="button" onClick={() => removeVideo(index)}>
+                                  Quitar
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="helper-text">Los videos se mostrarán dentro del detalle del producto junto a las imágenes.</p>
+                      )}
+                    </section>
+
+                    <section className="editor-section">
+                      <div className="inline-heading">
+                        <div><p className="section-overline">Etiquetas</p><h3 className="subsection-title">Clasificación</h3></div>
+                        <button className="secondary-button" type="button" onClick={() => setTagPickerOpen(true)}>Elegir etiquetas</button>
+                      </div>
+                      <p className="helper-text">Usalas para agrupar, filtrar y destacar mejor los productos.</p>
+                      <div className="tag-selection-summary">
+                        {productForm.tags.length > 0 ? (
+                          <div className="tag-row">{productForm.tags.map((tag) => <span key={tag} className="tag-chip">#{tag}</span>)}</div>
+                        ) : (<p className="helper-text">No hay etiquetas seleccionadas.</p>)}
+                      </div>
+                    </section>
+                  </div>
                 </div>
-                <div className="inline-actions">
-                  <button className="primary-button" type="submit" disabled={isPending}>{editingId ? "Guardar cambios" : "Crear producto"}</button>
-                  <button className="secondary-button" type="button" onClick={resetProductForm}>Cancelar</button>
+
+                <div className="product-editor-footer">
+                  <div className="product-editor-footer-copy">
+                    <strong>{editingId ? "Editando producto" : "Nuevo producto"}</strong>
+                    <span>Guardá cuando ya estén completos datos, medios y clasificación.</span>
+                  </div>
+                  <div className="inline-actions">
+                    <button className="primary-button" type="submit" disabled={isPending}>{editingId ? "Guardar cambios" : "Crear producto"}</button>
+                    <button className="secondary-button" type="button" onClick={resetProductForm}>Cancelar</button>
+                  </div>
                 </div>
-              </div>
-            </form>
-            <p className={`feedback ${tagMessage || productMessage ? "visible" : ""}`}>{productMessage || tagMessage}</p>
+              </form>
+              <p className={`feedback ${tagMessage || productMessage ? "visible" : ""}`}>{productMessage || tagMessage}</p>
+            </div>
           </div>
         </div>
       ) : null}
@@ -1612,60 +1766,187 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
         </div>
       ) : null}
 
-      {selectedOrder && orderDraft ? (
+      {orderDraft ? (
         <div className="modal-backdrop" role="presentation" onClick={closeOrderEditor}>
-          <div className="modal-card modal-card-order modal-card-order-wide" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-card modal-card-order modal-card-order-wide order-editor-modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <div><p className="section-overline">Pedido #{selectedOrder.id}</p><h2>Editar pedido</h2></div>
+              <div><p className="section-overline">{selectedOrder ? `Pedido #${selectedOrder.id}` : "Nuevo pedido"}</p><h2>{selectedOrder ? "Editar pedido" : "Crear pedido"}</h2></div>
               <button className="icon-button" type="button" onClick={closeOrderEditor} aria-label="Cerrar">×</button>
             </div>
 
-            <div className="order-edit-grid">
-              <input type="text" value={orderDraft.customerName} onChange={(e) => updateOrderField("customerName", e.target.value)} placeholder="Nombre del cliente" disabled />
-              <input type="text" value={orderDraft.customerPhone} onChange={(e) => updateOrderField("customerPhone", e.target.value)} placeholder="Teléfono del cliente" />
-            </div>
-
-            <textarea rows={2} value={orderDraft.notes} onChange={(e) => updateOrderField("notes", e.target.value)} placeholder="Notas del pedido" />
-
-            <div className="order-edit-items">
-              {orderDraft.items.map((item, index) => {
-                const isExistingProduct = item.productId > 0;
-
-                return (
-                  <div key={`${index}-${item.productName}`} className="order-edit-item-card">
-                    <div className="order-edit-item-grid">
-                      <input type="text" value={item.productName} onChange={(e) => updateOrderItem(index, "productName", e.target.value)} placeholder="Producto" disabled readOnly={isExistingProduct} />
-                      <input type="text" value={item.variant} onChange={(e) => updateOrderItem(index, "variant", e.target.value)} placeholder="Tipo. Ej: Color: Negro · Talle: M" />
+            <div className="order-editor-scroll">
+              <div className="order-edit-grid">
+                <div className="stack-form autocomplete-shell">
+                  <input
+                    type="search"
+                    value={orderUserSearch}
+                    onChange={(e) => {
+                      setOrderUserSearch(e.target.value);
+                      setOrderUserMenuOpen(true);
+                      if (!e.target.value.trim()) {
+                        setOrderDraft((current) => (current ? { ...current, userId: null } : current));
+                      }
+                    }}
+                    onFocus={() => setOrderUserMenuOpen(true)}
+                    placeholder="Buscar user por nombre, username, email o teléfono"
+                  />
+                  {orderUserMenuOpen ? (
+                    <div className="autocomplete-menu">
+                      <button
+                        type="button"
+                        className={`autocomplete-option ${orderDraft.userId == null ? "active" : ""}`}
+                        onClick={() => assignOrderUser("")}
+                      >
+                        <span>Sin usuario asignado</span>
+                      </button>
+                      {orderAssignableUsers.length > 0 ? (
+                        orderAssignableUsers.map((listedUser) => (
+                          <button
+                            key={listedUser.id}
+                            type="button"
+                            className={`autocomplete-option ${orderDraft.userId === listedUser.id ? "active" : ""}`}
+                            onClick={() => assignOrderUser(String(listedUser.id))}
+                          >
+                            <span>{listedUser.name}</span>
+                            <small>@{listedUser.username}{listedUser.phone ? ` · ${listedUser.phone}` : ""}</small>
+                          </button>
+                        ))
+                      ) : (
+                        <div className="autocomplete-empty">No encontramos users con esa búsqueda.</div>
+                      )}
                     </div>
-                    <div className="order-edit-item-grid order-edit-item-grid-tight">
-                      <div className="currency-input-wrap compact-price-field">
-                        <span>$</span>
-                        <input type="number" min={0} value={item.unitPrice || ""} onChange={(e) => updateOrderItem(index, "unitPrice", e.target.value)} placeholder="Precio" />
-                      </div>
-                      <input type="number" min={1} value={item.quantity || 1} onChange={(e) => updateOrderItem(index, "quantity", e.target.value)} placeholder="Cantidad" />
-                      <button className="danger-button" type="button" onClick={() => removeOrderItem(index)}>Eliminar</button>
-                    </div>
+                  ) : null}
+                </div>
+                {selectedOrder ? (
+                  <input
+                    type="text"
+                    value={orderDraft.customerName}
+                    onChange={(e) => updateOrderField("customerName", e.target.value)}
+                    placeholder="Nombre del cliente"
+                  />
+                ) : (
+                  <div className="mini-form-card order-user-summary">
+                    <strong>{orderDraft.userId ? "Usuario asignado" : "Pedido sin usuario"}</strong>
+                    <span>
+                      {orderDraft.userId
+                        ? `${selectedOrderUser?.name || orderDraft.customerName || "Cliente"}${selectedOrderUser?.username ? ` · @${selectedOrderUser.username}` : ""}${orderDraft.customerPhone ? ` · ${orderDraft.customerPhone}` : ""}`
+                        : "Si no elegís un user, el pedido se guarda sin vincular y con nombre genérico."}
+                    </span>
                   </div>
-                );
-              })}
-            </div>
-
-            <div className="order-edit-footer-row">
-              <button className="secondary-button" type="button" onClick={openOrderProductPicker}>Agregar producto</button>
-              <div className="order-detail-total">
-                <span>Total recalculado</span>
-                <strong>{formatCurrency(orderDraftTotal)}</strong>
+                )}
               </div>
-            </div>
 
-            <div className="order-actions">
-              <button className="primary-button" type="button" disabled={isPending} onClick={() => saveOrderChanges("accepted")}>Aceptar pedido</button>
-              <button className="danger-button" type="button" disabled={isPending} onClick={() => saveOrderChanges("rejected")}>Rechazar pedido</button>
-              <button className="secondary-button" type="button" disabled={isPending} onClick={() => saveOrderChanges("pending")}>Guardar cambios</button>
-              <button className="danger-button" type="button" disabled={isPending} onClick={() => removeOrder(selectedOrder.id)}>Eliminar pedido</button>
-              <button className="secondary-button" type="button" onClick={closeOrderEditor}>Cancelar</button>
+              {selectedOrder ? (
+                <div className="order-edit-grid">
+                  <input type="text" value={orderDraft.customerPhone} onChange={(e) => updateOrderField("customerPhone", e.target.value)} placeholder="Teléfono del cliente" />
+                  <select value={orderDraft.status} onChange={(e) => updateOrderField("status", e.target.value as OrderStatus)}>
+                    <option value="pending">Pendiente</option>
+                    <option value="accepted">Aceptado</option>
+                    <option value="modified">Modificado</option>
+                    <option value="rejected">Rechazado</option>
+                  </select>
+                </div>
+              ) : (
+                <input
+                  type="text"
+                  value={orderDraft.customerPhone}
+                  onChange={(e) => updateOrderField("customerPhone", e.target.value)}
+                  placeholder="Teléfono del cliente"
+                />
+              )}
+
+              <textarea rows={2} value={orderDraft.notes} onChange={(e) => updateOrderField("notes", e.target.value)} placeholder="Notas del pedido" />
+
+              <div className="order-edit-items">
+                {orderDraft.items.map((item, index) => {
+                  const isExistingProduct = item.productId > 0;
+                  const linkedProduct = isExistingProduct ? products.find((product) => product.id === item.productId) || null : null;
+                  const variantGroups = linkedProduct?.variantGroups || [];
+                  const hasVariantGroups = variantGroups.length > 0;
+                  const currentVariantSelections = hasVariantGroups ? parseVariantSelection(item.variant, variantGroups) : null;
+
+                  return (
+                    <div key={`${index}-${item.productName}`} className="order-edit-item-card">
+                      <div className="order-edit-item-grid">
+                        <input
+                          className={!hasVariantGroups && isExistingProduct ? "order-edit-item-grid-full" : undefined}
+                          type="text"
+                          value={item.productName}
+                          onChange={(e) => updateOrderItem(index, "productName", e.target.value)}
+                          placeholder="Producto"
+                          disabled
+                          readOnly={isExistingProduct}
+                        />
+                        {hasVariantGroups ? (
+                          <div className="order-variant-picker">
+                            <div className="order-variant-picker-header">
+                              <span>Elegí las categorías</span>
+                              <strong>{item.variant || "Sin variantes"}</strong>
+                            </div>
+                            <div className="order-variant-groups">
+                              {variantGroups.map((group) => (
+                                <div key={group.name} className="order-variant-group">
+                                  <span className="order-variant-group-label">{group.name}</span>
+                                  <div className="order-variant-options">
+                                    {group.options.map((option) => {
+                                      const isActive = currentVariantSelections?.[group.name] === option;
+
+                                      return (
+                                        <button
+                                          key={option}
+                                          type="button"
+                                          className={`order-variant-option ${isActive ? "active" : ""}`}
+                                          onClick={() => updateOrderItemVariantSelection(index, linkedProduct!, group.name, option)}
+                                        >
+                                          {option}
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ) : !isExistingProduct ? (
+                          <input type="text" value={item.variant} onChange={(e) => updateOrderItem(index, "variant", e.target.value)} placeholder="Tipo. Ej: Color: Negro · Talle: M" />
+                        ) : null}
+                      </div>
+                      <div className="order-edit-item-grid order-edit-item-grid-tight">
+                        <div className="currency-input-wrap compact-price-field">
+                          <span>$</span>
+                          <input type="number" min={0} value={item.unitPrice || ""} onChange={(e) => updateOrderItem(index, "unitPrice", e.target.value)} placeholder="Precio" />
+                        </div>
+                        <input type="number" min={1} value={item.quantity || 1} onChange={(e) => updateOrderItem(index, "quantity", e.target.value)} placeholder="Cantidad" />
+                        <button className="danger-button" type="button" onClick={() => removeOrderItem(index)}>Eliminar</button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="order-edit-footer-row">
+                <button className="secondary-button" type="button" onClick={openOrderProductPicker}>Agregar producto</button>
+                <div className="order-detail-total">
+                  <span>Total recalculado</span>
+                  <strong>{formatCurrency(orderDraftTotal)}</strong>
+                </div>
+              </div>
+
+              <div className="order-actions">
+                <button className="primary-button" type="button" disabled={isPending} onClick={() => saveOrderChanges(orderDraft.status)}>
+                  {selectedOrder ? "Guardar cambios" : "Crear pedido"}
+                </button>
+                {selectedOrder ? (
+                  <>
+                    <button className="secondary-button" type="button" disabled={isPending} onClick={() => saveOrderChanges("accepted")}>Aceptar pedido</button>
+                    <button className="danger-button" type="button" disabled={isPending} onClick={() => saveOrderChanges("rejected")}>Rechazar pedido</button>
+                    <button className="danger-button" type="button" disabled={isPending} onClick={() => removeOrder(selectedOrder.id)}>Eliminar pedido</button>
+                  </>
+                ) : null}
+                <button className="secondary-button" type="button" onClick={closeOrderEditor}>Cancelar</button>
+              </div>
+              <p className={`feedback ${orderMessage ? "visible" : ""}`}>{orderMessage}</p>
             </div>
-            <p className={`feedback ${orderMessage ? "visible" : ""}`}>{orderMessage}</p>
           </div>
         </div>
       ) : null}
@@ -1741,7 +2022,7 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
 
       {productPickerOpen ? (
         <div className="modal-backdrop modal-backdrop-front" role="presentation" onClick={() => setProductPickerOpen(false)}>
-          <div className="modal-card modal-card-order modal-card-order-wide" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-card modal-card-order modal-card-order-wide order-picker-modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <div>
                 <p className="section-overline">Pedidos</p>
@@ -1760,28 +2041,30 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
                 placeholder="Buscar por nombre, descripción o etiqueta"
               />
 
-              <div className="orders-list order-picker-list">
+              <div className="order-picker-list">
                 {orderPickerProducts.map((product) => (
-                  <article key={product.id} className="inventory-card inventory-card-pick">
-                    <div className="inventory-preview">
-                      <div className="inventory-media-frame">
+                  <article key={product.id} className="order-picker-card">
+                    <div className="order-picker-card-media">
+                      <div className="order-picker-media-frame">
                         <img src={product.image} alt={product.name} className="inventory-media-tag" />
                       </div>
-                      <div>
-                        <div className="inventory-title-row">
+                    </div>
+                    <div className="order-picker-card-body">
+                      <div className="order-picker-card-header">
+                        <div className="order-picker-title-row">
                           <h3>{product.name}</h3>
                           {product.discountPrice ? <span className="discount-badge">Descuento</span> : null}
                         </div>
-                        <p>{product.description}</p>
-                        <div className="tag-row">
-                          {product.tags.map((tag) => (
-                            <span key={tag} className="tag-chip">#{tag}</span>
-                          ))}
-                        </div>
+                        <strong className="order-picker-price">{formatCurrency(getEffectivePrice(product))}</strong>
+                      </div>
+                      <p className="order-picker-description">{product.description}</p>
+                      <div className="tag-row order-picker-tags">
+                        {product.tags.map((tag) => (
+                          <span key={tag} className="tag-chip">#{tag}</span>
+                        ))}
                       </div>
                     </div>
-                    <div className="inventory-actions">
-                      <strong>{formatCurrency(getEffectivePrice(product))}</strong>
+                    <div className="order-picker-card-actions">
                       <button className="primary-button" type="button" onClick={() => addProductToOrder(product)}>
                         Agregar
                       </button>

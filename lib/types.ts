@@ -108,6 +108,7 @@ export interface OrderItemInput {
 }
 
 export interface OrderInput {
+  userId?: number | null;
   customerName?: string;
   customerPhone?: string;
   notes?: string;
@@ -115,6 +116,7 @@ export interface OrderInput {
 }
 
 export interface OrderUpdateInput {
+  userId?: number | null;
   customerName: string;
   customerPhone: string;
   notes: string;
