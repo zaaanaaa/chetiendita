@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 
 import { useCart } from "@/components/cart-context";
 import { ProductCarouselItem, ProductImageCarousel } from "@/components/product-image-carousel";
+import { isColorVariantGroup, isHexColor } from "@/lib/color-variants";
 import { Product } from "@/lib/types";
 
 interface ProductModalProps {
@@ -230,18 +231,28 @@ export function ProductModal({ product, onClose }: ProductModalProps) {
                   <div key={group.name} className="product-variant-group">
                     <label className="product-modal-label">{group.name}</label>
                     <div className="variant-chips">
-                      {group.options.map((option) => (
-                        <button
-                          key={option}
-                          type="button"
-                          className={`variant-chip ${selectedOptions[group.name] === option ? "active" : ""}`}
-                          onClick={() =>
-                            setSelectedOptions((current) => ({ ...current, [group.name]: option }))
-                          }
-                        >
-                          {option}
-                        </button>
-                      ))}
+                      {group.options.map((option) => {
+                        const isColorOption = isColorVariantGroup(group.name) && isHexColor(option);
+
+                        return (
+                          <button
+                            key={option}
+                            type="button"
+                            className={`variant-chip ${isColorOption ? "variant-chip-color" : ""} ${selectedOptions[group.name] === option ? "active" : ""}`}
+                            onClick={() =>
+                              setSelectedOptions((current) => ({ ...current, [group.name]: option }))
+                            }
+                            aria-label={isColorOption ? `Elegir color ${option}` : undefined}
+                            title={isColorOption ? option : undefined}
+                          >
+                            {isColorOption ? (
+                              <span className="color-swatch" style={{ backgroundColor: option }} aria-hidden="true" />
+                            ) : (
+                              option
+                            )}
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
                 ))}

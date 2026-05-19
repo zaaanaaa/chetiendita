@@ -8,6 +8,7 @@ import { CheckoutModal } from "@/components/checkout-modal";
 import { HeaderShell } from "@/components/header-shell";
 import { LoginPanel } from "@/components/login-panel";
 import { ProductModal } from "@/components/product-modal";
+import { VariantDisplay } from "@/components/variant-display";
 import { Order, Product, User } from "@/lib/types";
 
 interface UserOrdersClientProps {
@@ -191,7 +192,7 @@ export function UserOrdersClient({ user, orders }: UserOrdersClientProps) {
                               <div className="order-item-img" style={{ backgroundImage: `url(${item.image})` }} />
                               <div>
                                 <h4>{item.productName}</h4>
-                                {item.variant ? <p>{item.variant}</p> : null}
+                                {item.variant ? <p><VariantDisplay value={item.variant} /></p> : null}
                                 <p className="order-history-item-price">{formatCurrency(item.unitPrice)} c/u</p>
                               </div>
                               <div className="order-history-item-meta">
@@ -258,7 +259,7 @@ export function UserOrdersClient({ user, orders }: UserOrdersClientProps) {
                               <div className="order-item-img" style={{ backgroundImage: `url(${item.image})` }} />
                               <div>
                                 <h4>{item.productName}</h4>
-                                {item.variant ? <p>{item.variant}</p> : null}
+                                {item.variant ? <p><VariantDisplay value={item.variant} /></p> : null}
                                 <p className="order-history-item-price">{formatCurrency(item.unitPrice)} c/u</p>
                               </div>
                               <div className="order-history-item-meta">

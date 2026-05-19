@@ -1,6 +1,7 @@
 "use client";
 
 import { useCart } from "@/components/cart-context";
+import { VariantDisplay } from "@/components/variant-display";
 
 interface CartDrawerProps {
   open: boolean;
@@ -72,7 +73,11 @@ export function CartDrawer({
                   />
                   <div className="drawer-item-info">
                     <h4>{item.productName}</h4>
-                    {item.variant && <span className="drawer-item-variant">{item.variant}</span>}
+                    {item.variant ? (
+                      <span className="drawer-item-variant">
+                        <VariantDisplay value={item.variant} />
+                      </span>
+                    ) : null}
                     <p className="drawer-item-price">{formatCurrency(item.unitPrice)}</p>
                     <div className="drawer-item-controls">
                       <div className="qty-control qty-control-sm">

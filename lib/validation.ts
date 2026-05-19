@@ -9,6 +9,7 @@ import {
   UserInput,
   UserRole,
 } from "@/lib/types";
+import { isColorVariantGroup, normalizeColorOption } from "@/lib/color-variants";
 
 export function normalizeTagName(value: string) {
   return value.trim().toLowerCase();
@@ -27,12 +28,19 @@ export function normalizeVariantGroups(
   legacyVariants?: string[],
 ): ProductVariantGroup[] {
   const normalizedGroups = (groups || [])
-    .map((group) => ({
-      name: normalizeVariantGroupName(group.name || ""),
-      options: Array.from(
-        new Set((group.options || []).map(normalizeVariantOption).filter(Boolean)),
-      ),
-    }))
+    .map((group) => {
+      const name = normalizeVariantGroupName(group.name || "");
+      const options = Array.from(
+        new Set(
+          (group.options || [])
+            .map(normalizeVariantOption)
+            .map((option) => (isColorVariantGroup(name) ? normalizeColorOption(option) || option : option))
+            .filter(Boolean),
+        ),
+      );
+
+      return { name, options };
+    })
     .filter((group) => group.name && group.options.length > 0);
 
   if (normalizedGroups.length > 0) {

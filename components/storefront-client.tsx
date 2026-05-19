@@ -440,14 +440,11 @@ export function StorefrontClient({ initialProducts, tags, user, mode, heroImages
               ) : null}
               {heroImages.length === 0 ? (
                 <>
-                  <p className="hero-kicker">Objetos con oficio, color y carácter</p>
                   <h1 className="storefront-hero-title">
-                    Una tienda pequeña con una experiencia mucho más clara y cálida.
+                    Todo lo que buscas.
+                    <br />
+                    Y lo que no sabías que querías!
                   </h1>
-                  <p className="storefront-hero-description">
-                    Descubrí productos artesanales y de diseño con una navegación simple,
-                    filtros útiles y un checkout directo para cerrar tu pedido sin fricción.
-                  </p>
                   <div className="storefront-hero-actions">
                     <a href="#catalogo" className="primary-button">
                       Explorar productos

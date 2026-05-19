@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 
 import { useCart } from "@/components/cart-context";
+import { VariantDisplay } from "@/components/variant-display";
 
 interface CheckoutModalProps {
   open: boolean;
@@ -111,7 +112,12 @@ export function CheckoutModal({ open, onClose }: CheckoutModalProps) {
                   <div key={`${item.productId}-${item.variant}`} className="checkout-item-row">
                     <span className="checkout-item-name">
                       {item.quantity}× {item.productName}
-                      {item.variant ? ` (${item.variant})` : ""}
+                      {item.variant ? (
+                        <>
+                          {" "}
+                          <VariantDisplay value={item.variant} />
+                        </>
+                      ) : null}
                     </span>
                     <span className="checkout-item-price">
                       {formatCurrency(item.unitPrice * item.quantity)}

@@ -5,6 +5,14 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 
 import { CartDrawer } from "@/components/cart-drawer";
+import { useCart } from "@/components/cart-context";
+import { VariantDisplay } from "@/components/variant-display";
+import {
+  DEFAULT_COLOR_OPTION,
+  isColorVariantGroup,
+  isHexColor,
+  normalizeColorOption,
+} from "@/lib/color-variants";
 import {
   Order,
   OrderItemInput,
@@ -108,6 +116,14 @@ function getDiscountPercentage(price: number, discountPrice: number | null) {
 
 function isDiscountedPrice(price: number, discountPrice: number | null) {
   return discountPrice !== null && discountPrice > 0 && discountPrice < price;
+}
+
+function getVariantOptionDraftValue(group: ProductVariantGroup, draft: string | undefined) {
+  if (!isColorVariantGroup(group.name)) {
+    return draft || "";
+  }
+
+  return normalizeColorOption(draft || "") || DEFAULT_COLOR_OPTION;
 }
 
 function normalizeProductDraft(input: ProductInput): ProductInput {
@@ -237,6 +253,7 @@ function moveArrayItem<T>(items: T[], fromIndex: number, toIndex: number) {
 
 export function AdminClient({ user, initialProducts, initialTags }: AdminClientProps) {
   const router = useRouter();
+  const { totalItems } = useCart();
   const [products, setProducts] = useState(initialProducts);
   const [tags, setTags] = useState(initialTags);
   const [orders, setOrders] = useState<Order[]>([]);
@@ -534,7 +551,14 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
   }
 
   function addVariantOption(index: number) {
-    const draft = variantOptionDrafts[index]?.trim();
+    const group = productForm.variantGroups?.[index];
+    if (!group) {
+      return;
+    }
+
+    const draft = isColorVariantGroup(group.name)
+      ? getVariantOptionDraftValue(group, variantOptionDrafts[index])
+      : variantOptionDrafts[index]?.trim();
     if (!draft) {
       return;
     }
@@ -550,7 +574,7 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
           : group,
       ),
     }));
-    updateVariantOptionDraft(index, "");
+    updateVariantOptionDraft(index, isColorVariantGroup(group.name) ? DEFAULT_COLOR_OPTION : "");
   }
 
   function removeVariantOption(groupIndex: number, optionToRemove: string) {
@@ -1054,6 +1078,20 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
           </div>
 
           <button
+            className="mobile-cart-shortcut admin-mobile-cart-shortcut"
+            type="button"
+            onClick={() => setCartOpen(true)}
+            aria-label="Ver carrito"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <circle cx="9" cy="21" r="1" />
+              <circle cx="20" cy="21" r="1" />
+              <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" />
+            </svg>
+            {totalItems > 0 ? <span>{totalItems}</span> : null}
+          </button>
+
+          <button
             className={`sidebar-toggle admin-sidebar-toggle ${mobileNavOpen ? "active" : ""}`}
             type="button"
             onClick={() => setMobileNavOpen((current) => !current)}
@@ -1074,12 +1112,51 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
           />
 
           <aside className={`header-sidebar admin-header-sidebar ${mobileNavOpen ? "open" : ""}`}>
-            <span className="header-sidebar-user">{user.name}</span>
-            <p className="admin-sidebar-role">Administrador</p>
+            <div className="header-sidebar-section mobile-sidebar-nav">
+              <span className="header-sidebar-label">Panel</span>
+              <div className="header-sidebar-actions">
+                <button
+                  type="button"
+                  className={`sidebar-link mobile-sidebar-tab ${activeTab === "inventory" ? "active" : ""}`}
+                  onClick={() => {
+                    setActiveTab("inventory");
+                    setMobileNavOpen(false);
+                  }}
+                >
+                  Inventario
+                </button>
+                <button
+                  type="button"
+                  className={`sidebar-link mobile-sidebar-tab ${activeTab === "orders" ? "active" : ""}`}
+                  onClick={() => {
+                    setActiveTab("orders");
+                    setMobileNavOpen(false);
+                  }}
+                >
+                  Pedidos
+                </button>
+                <button
+                  type="button"
+                  className={`sidebar-link mobile-sidebar-tab ${activeTab === "users" ? "active" : ""}`}
+                  onClick={() => {
+                    setActiveTab("users");
+                    setMobileNavOpen(false);
+                  }}
+                >
+                  Users
+                </button>
+              </div>
+            </div>
+
+            <div className="header-sidebar-section">
+              <span className="header-sidebar-user">{user.name}</span>
+              <p className="admin-sidebar-role">Administrador</p>
+            </div>
+
             <div className="header-sidebar-actions">
               <Link href="/pedidos" className="sidebar-link" onClick={() => setMobileNavOpen(false)}>Mis pedidos</Link>
               <button
-                className="sidebar-cart"
+                className="sidebar-cart sidebar-cart-desktop-only"
                 type="button"
                 onClick={() => {
                   setMobileNavOpen(false);
@@ -1152,8 +1229,29 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
                         {product.variantGroups.length > 0 ? (
                           <div className="admin-variant-group-list">
                             {product.variantGroups.map((group) => (
-                              <span key={group.name} className="variant-chip-sm">
-                                {group.name}: {group.options.join(", ")}
+                              <span
+                                key={group.name}
+                                className={`variant-chip-sm ${isColorVariantGroup(group.name) ? "variant-chip-sm-color-group" : ""}`}
+                              >
+                                <span>{group.name}:</span>
+                                {isColorVariantGroup(group.name) ? (
+                                  <span className="color-swatch-list">
+                                    {group.options.map((option) =>
+                                      isHexColor(option) ? (
+                                        <span
+                                          key={option}
+                                          className="color-swatch color-swatch-mini"
+                                          style={{ backgroundColor: option }}
+                                          title={option}
+                                        />
+                                      ) : (
+                                        <span key={option}>{option}</span>
+                                      ),
+                                    )}
+                                  </span>
+                                ) : (
+                                  <span>{group.options.join(", ")}</span>
+                                )}
                               </span>
                             ))}
                           </div>
@@ -1229,7 +1327,7 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
                                 <div className="order-item-img" style={{ backgroundImage: `url(${item.image})` }} />
                                 <div>
                                   <h4>{item.productName}</h4>
-                                  {item.variant ? <p>{item.variant}</p> : null}
+                                  {item.variant ? <p><VariantDisplay value={item.variant} /></p> : null}
                                 </div>
                                 <span>{item.quantity}x</span>
                               </div>
@@ -1306,7 +1404,7 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
                                 <div className="order-item-img" style={{ backgroundImage: `url(${item.image})` }} />
                                 <div>
                                   <h4>{item.productName}</h4>
-                                  {item.variant ? <p>{item.variant}</p> : null}
+                                  {item.variant ? <p><VariantDisplay value={item.variant} /></p> : null}
                                 </div>
                                 <span>{item.quantity}x</span>
                               </div>
@@ -1445,7 +1543,7 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
                                     <div className="order-item-img" style={{ backgroundImage: `url(${item.image})` }} />
                                     <div>
                                       <h4>{item.productName}</h4>
-                                      {item.variant ? <p>{item.variant}</p> : null}
+                                      {item.variant ? <p><VariantDisplay value={item.variant} /></p> : null}
                                     </div>
                                     <span>{item.quantity}x</span>
                                   </div>
@@ -1543,16 +1641,51 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
                               <input type="text" value={group.name} onChange={(e) => updateVariantGroupName(groupIndex, e.target.value)} placeholder="Ej: Color" />
                               <button className="danger-button" type="button" onClick={() => removeVariantGroup(groupIndex)}>Eliminar</button>
                             </div>
-                            <div className="variant-editor">
-                              <input type="text" value={variantOptionDrafts[groupIndex] || ""} onChange={(e) => updateVariantOptionDraft(groupIndex, e.target.value)} placeholder="Ej: Negro" onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addVariantOption(groupIndex); } }} />
+                            <div className={`variant-editor ${isColorVariantGroup(group.name) ? "variant-editor-color" : ""}`}>
+                              {isColorVariantGroup(group.name) ? (
+                                <label className="color-picker-field">
+                                  <input
+                                    type="color"
+                                    value={getVariantOptionDraftValue(group, variantOptionDrafts[groupIndex])}
+                                    onChange={(e) => updateVariantOptionDraft(groupIndex, e.target.value)}
+                                    aria-label="Elegir color"
+                                  />
+                                  <span className="color-picker-value">
+                                    <span
+                                      className="color-swatch"
+                                      style={{ backgroundColor: getVariantOptionDraftValue(group, variantOptionDrafts[groupIndex]) }}
+                                    />
+                                  </span>
+                                </label>
+                              ) : (
+                                <input type="text" value={variantOptionDrafts[groupIndex] || ""} onChange={(e) => updateVariantOptionDraft(groupIndex, e.target.value)} placeholder="Ej: Negro" onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addVariantOption(groupIndex); } }} />
+                              )}
                               <button className="secondary-button" type="button" onClick={() => addVariantOption(groupIndex)}>Agregar opción</button>
                             </div>
                             <div className="tag-row">
-                              {group.options.map((option) => (
-                                <button key={option} type="button" className="tag-chip tag-chip-action" onClick={() => removeVariantOption(groupIndex, option)}>
-                                  {option} ×
-                                </button>
-                              ))}
+                              {group.options.map((option) => {
+                                const isColorOption = isColorVariantGroup(group.name) && isHexColor(option);
+
+                                return (
+                                  <button
+                                    key={option}
+                                    type="button"
+                                    className={`tag-chip tag-chip-action ${isColorOption ? "color-option-chip" : ""}`}
+                                    onClick={() => removeVariantOption(groupIndex, option)}
+                                    aria-label={isColorOption ? `Quitar color ${option}` : undefined}
+                                    title={isColorOption ? option : undefined}
+                                  >
+                                    {isColorOption ? (
+                                      <>
+                                        <span className="color-swatch color-swatch-mini" style={{ backgroundColor: option }} />
+                                        <span aria-hidden="true">×</span>
+                                      </>
+                                    ) : (
+                                      `${option} ×`
+                                    )}
+                                  </button>
+                                );
+                              })}
                             </div>
                           </div>
                         ))}
@@ -1881,7 +2014,7 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
                           <div className="order-variant-picker">
                             <div className="order-variant-picker-header">
                               <span>Elegí las categorías</span>
-                              <strong>{item.variant || "Sin variantes"}</strong>
+                              <strong>{item.variant ? <VariantDisplay value={item.variant} /> : "Sin variantes"}</strong>
                             </div>
                             <div className="order-variant-groups">
                               {variantGroups.map((group) => (
@@ -1890,15 +2023,22 @@ export function AdminClient({ user, initialProducts, initialTags }: AdminClientP
                                   <div className="order-variant-options">
                                     {group.options.map((option) => {
                                       const isActive = currentVariantSelections?.[group.name] === option;
+                                      const isColorOption = isColorVariantGroup(group.name) && isHexColor(option);
 
                                       return (
                                         <button
                                           key={option}
                                           type="button"
-                                          className={`order-variant-option ${isActive ? "active" : ""}`}
+                                          className={`order-variant-option ${isColorOption ? "order-variant-option-color" : ""} ${isActive ? "active" : ""}`}
                                           onClick={() => updateOrderItemVariantSelection(index, linkedProduct!, group.name, option)}
+                                          aria-label={isColorOption ? `Elegir color ${option}` : undefined}
+                                          title={isColorOption ? option : undefined}
                                         >
-                                          {option}
+                                          {isColorOption ? (
+                                            <span className="color-swatch color-swatch-mini" style={{ backgroundColor: option }} aria-hidden="true" />
+                                          ) : (
+                                            option
+                                          )}
                                         </button>
                                       );
                                     })}

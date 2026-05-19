@@ -96,6 +96,20 @@ export function HeaderShell({ user, onLoginClick, onLogoutClick, onCartClick }: 
             </div>
           </div>
 
+          <button
+            className="mobile-cart-shortcut"
+            type="button"
+            onClick={onCartClick}
+            aria-label="Ver carrito"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <circle cx="9" cy="21" r="1" />
+              <circle cx="20" cy="21" r="1" />
+              <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" />
+            </svg>
+            {totalItems > 0 ? <span>{totalItems}</span> : null}
+          </button>
+
           <button 
             className={`sidebar-toggle ${sidebarOpen ? "active" : ""}`} 
             type="button" 
@@ -117,6 +131,31 @@ export function HeaderShell({ user, onLoginClick, onLogoutClick, onCartClick }: 
           />
 
           <aside className={`header-sidebar ${sidebarOpen ? "open" : ""}`}>
+            <div className="header-sidebar-section mobile-sidebar-nav">
+              <span className="header-sidebar-label">Navegación</span>
+              <div className="header-sidebar-actions">
+                {primaryNavigation.map((item) => (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className={`sidebar-link mobile-sidebar-link ${item.active ? "active" : ""}`}
+                    onClick={closeSidebar}
+                  >
+                    {item.label}
+                  </Link>
+                ))}
+                {!isLanding && !isAdminUser && user ? (
+                  <Link
+                    href="/pedidos"
+                    className={`sidebar-link mobile-sidebar-link ${pathname === "/pedidos" ? "active" : ""}`}
+                    onClick={closeSidebar}
+                  >
+                    Mis pedidos
+                  </Link>
+                ) : null}
+              </div>
+            </div>
+
             <div className="header-sidebar-section">
               <span className="header-sidebar-label">Cuenta</span>
             {user ? <span className="header-sidebar-user">{user.name || user.username}</span> : null}
@@ -124,7 +163,7 @@ export function HeaderShell({ user, onLoginClick, onLogoutClick, onCartClick }: 
             <div className="header-sidebar-actions">
               {user ? (
                 <>
-                  <button className="sidebar-cart" type="button" onClick={() => { closeSidebar(); onCartClick?.(); }} aria-label="Ver carrito">
+                  <button className="sidebar-cart sidebar-cart-desktop-only" type="button" onClick={() => { closeSidebar(); onCartClick?.(); }} aria-label="Ver carrito">
                     <span>Carrito</span>
                     {totalItems > 0 ? <strong>{totalItems}</strong> : <strong>0</strong>}
                   </button>
@@ -133,9 +172,11 @@ export function HeaderShell({ user, onLoginClick, onLogoutClick, onCartClick }: 
                   </button>
                 </>
               ) : (
-                <button className="sidebar-link sidebar-link-primary" type="button" onClick={() => { closeSidebar(); onLoginClick?.(); }}>
-                  Ingresar
-                </button>
+                <>
+                  <button className="sidebar-link sidebar-link-primary" type="button" onClick={() => { closeSidebar(); onLoginClick?.(); }}>
+                    Ingresar
+                  </button>
+                </>
               )}
             </div>
             </div>
